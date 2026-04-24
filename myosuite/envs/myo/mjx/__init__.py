@@ -41,7 +41,7 @@ reach_env_config = config_dict.ConfigDict({**base_config, **config_dict.create(
 )})
 
 ppo_config = config_dict.create(
-    num_timesteps=50_000_000,
+    num_timesteps=100_000_000,
     learning_rate=3e-4,
     discounting=0.97,
     gae_lambda=0.95,
