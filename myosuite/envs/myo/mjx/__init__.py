@@ -9,6 +9,8 @@ from mujoco_playground._src import mjx_env
 from myosuite.envs.myo.mjx.playground_pose_v0 import MjxPoseEnvV0
 from myosuite.envs.myo.mjx.playground_reach_v0 import MjxReachEnvV0
 from myosuite.envs.myo.mjx.custom_playground_reach_v0 import CustomMjxReachEnvV0
+from myosuite.envs.myo.mjx.playground_pen_v0 import MjxPenTwirlEnvV0
+from myosuite.envs.myo.mjx.rl_cfg import ppo_config
 
 base_config = config_dict.create(
     ctrl_dt=0.02,
@@ -52,31 +54,18 @@ custom_reach_env_config = config_dict.ConfigDict({**base_config, **config_dict.c
     far_th=0.35,
 )})
 
-ppo_config = config_dict.create(
-    num_timesteps=100_000_000,
-    learning_rate=3e-4,
-    discounting=0.97,
-    gae_lambda=0.95,
-    entropy_cost=0.001,
-    clipping_epsilon=0.3,
-    max_grad_norm=1.0,
-    action_repeat=1,
-    num_minibatches=32,
-    num_updates_per_batch=8,
-    batch_size=256,
-    unroll_length=10,
-    reward_scaling=1.0,
-    normalize_observations=True,
-    num_evals=16,
-    num_eval_envs=128,
-    num_resets_per_eval=1,
-    network_factory=config_dict.create(
-        policy_hidden_layer_sizes=(64, 64, 64),
-        value_hidden_layer_sizes=(64, 64, 64),
-        policy_obs_key="state",
-        value_obs_key="state",
+pen_env_config = config_dict.ConfigDict({**base_config, **config_dict.create(
+    max_episode_steps=50,
+    reward_config=config_dict.create(
+        pos_align_weight=1.0,
+        rot_align_weight=1.0,
+        act_reg_weight=5.0,
+        drop_weight=5.0,
+        bonus_weight=10.0,
     ),
-)
+    random_target=False,
+    target_euler_range=jp.array(((-1.0, -1.0), (1.0, 1.0))),
+)})
 
 # Elbow posing ==============================
 elbow_pose_env_config = copy.deepcopy(pose_env_config)
@@ -107,6 +96,14 @@ custom_hand_reach_env_config = copy.deepcopy(custom_reach_env_config)
 model_path = "envs/myo/assets/hand/"
 model_filename = "myohand_pose.xml"
 custom_hand_reach_env_config["model_path"] = (
+    epath.Path(epath.resource_path("myosuite")) / model_path / model_filename
+)
+
+# Hand pen twirl ==============================
+hand_pen_env_config = copy.deepcopy(pen_env_config)
+model_path = "envs/myo/assets/hand/"
+model_filename = "myohand_pen.xml"
+hand_pen_env_config["model_path"] = (
     epath.Path(epath.resource_path("myosuite")) / model_path / model_filename
 )
 
@@ -261,6 +258,22 @@ def make(env_name: str, config_overrides=None) -> mjx_env.MjxEnv:
 
         return env
 
+    if "MjxHandPenTwirl" in env_name_base:
+
+        if env_name_base == "MjxHandPenTwirlFixed-v0":
+            hand_pen_env_config["random_target"] = False
+        elif env_name_base == "MjxHandPenTwirlRandom-v0":
+            hand_pen_env_config["random_target"] = True
+
+        registry.register_environment_with_variants(
+            env_name_base,
+            MjxPenTwirlEnvV0,
+            config_callable(hand_pen_env_config),
+        )
+        env = registry.load(env_name, config_overrides=config_overrides)
+
+        return env
+
 
 env_names = [
     "MjxElbowPoseFixed-v0",
@@ -270,4 +283,6 @@ env_names = [
     "MjxHandReachRandom-v0",
     "MjxHandReachFixed-v0",
     "MjxHandReachRandomCustom-v0",
+    "MjxHandPenTwirlFixed-v0",
+    "MjxHandPenTwirlRandom-v0",
 ]
