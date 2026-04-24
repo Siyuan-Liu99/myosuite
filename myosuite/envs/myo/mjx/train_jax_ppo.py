@@ -17,10 +17,10 @@ import wandb
 import argparse
 
 
-def main(env_name, impl, log_to_wandb, save_policy):
+def main(env_name, impl, log_to_wandb, save_policy, num_envs=4096):
     """Run training and evaluation for the specified environment."""
 
-    env, ppo_params, network_factory = load_env_and_network_factory(env_name, impl)
+    env, ppo_params, network_factory = load_env_and_network_factory(env_name, impl, num_envs)
 
     if log_to_wandb:
         wandb_run = wandb.init(project=env_name, config=ppo_params)
@@ -43,9 +43,10 @@ def main(env_name, impl, log_to_wandb, save_policy):
         with open('playground_params.pickle', 'wb') as handle:
             pickle.dump(params, handle, protocol=pickle.HIGHEST_PROTOCOL)
 
-def load_env_and_network_factory(env_name, impl):
-    env = make(env_name, config_overrides={"impl": impl})
+def load_env_and_network_factory(env_name, impl, num_envs=4096):
+    env = make(env_name, config_overrides={"impl": impl, "num_envs": num_envs})
     config = get_default_config(env_name)
+    config.update({"impl": impl, "num_envs": num_envs})
     ppo_params = dict(ppo_config)
 
     print(f"Training on environment:\n{env_name}")
@@ -87,6 +88,12 @@ if __name__ == "__main__":
         default="MjxFingerPoseRandom-v0",
     )
     parser.add_argument(
+        "--num_envs",
+        type=int,
+        default=4096,
+        help="Number of environments to run in parallel",
+    )
+    parser.add_argument(
         "--impl",
         type=str,
         default="jax",
@@ -103,4 +110,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args()
 
-    main(args.env_name, args.impl, args.log_to_wandb, args.save_policy)
+    main(args.env_name, args.impl, args.log_to_wandb, args.save_policy, args.num_envs)
