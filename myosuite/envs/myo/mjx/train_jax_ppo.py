@@ -2,6 +2,7 @@
 
 import functools
 import time
+from datetime import datetime
 import jax
 
 print(f"Current backend: {jax.default_backend()}. "
@@ -23,7 +24,8 @@ def main(env_name, impl, log_to_wandb, save_policy, num_envs=4096):
     env, ppo_params, network_factory = load_env_and_network_factory(env_name, impl, num_envs)
 
     if log_to_wandb:
-        wandb_run = wandb.init(project=env_name, config=ppo_params)
+        run_name = f"{env_name}-{datetime.now().strftime('%m%d-%H%M')}"
+        wandb_run = wandb.init(project="myosuite", name=run_name, config=ppo_params)
 
     # Train the model
     make_inference_fn, params, _ = ppo.train(
