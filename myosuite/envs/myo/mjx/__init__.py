@@ -8,6 +8,7 @@ from mujoco_playground._src import mjx_env
 
 from myosuite.envs.myo.mjx.playground_pose_v0 import MjxPoseEnvV0
 from myosuite.envs.myo.mjx.playground_reach_v0 import MjxReachEnvV0
+from myosuite.envs.myo.mjx.custom_playground_reach_v0 import CustomMjxReachEnvV0
 
 base_config = config_dict.create(
     ctrl_dt=0.02,
@@ -35,6 +36,17 @@ reach_env_config = config_dict.ConfigDict({**base_config, **config_dict.create(
         reach_weight=1.0,
         bonus_scale=4.0,
         penalty_scale=50.0,
+    ),
+    target_reach_range=config_dict.ConfigDict(),
+    far_th=0.35,
+)})
+
+custom_reach_env_config = config_dict.ConfigDict({**base_config, **config_dict.create(
+    reward_config=config_dict.create(
+        reach_weight=0.0,
+        bonus_scale=0.0,
+        penalty_scale=0.0,
+        log_reach_weight=2,
     ),
     target_reach_range=config_dict.ConfigDict(),
     far_th=0.35,
@@ -87,6 +99,14 @@ hand_reach_env_config = copy.deepcopy(reach_env_config)
 model_path = "envs/myo/assets/hand/"
 model_filename = "myohand_pose.xml"
 hand_reach_env_config["model_path"] = (
+    epath.Path(epath.resource_path("myosuite")) / model_path / model_filename
+)
+
+# Custom hand tips reaching ==============================
+custom_hand_reach_env_config = copy.deepcopy(custom_reach_env_config)
+model_path = "envs/myo/assets/hand/"
+model_filename = "myohand_pose.xml"
+custom_hand_reach_env_config["model_path"] = (
     epath.Path(epath.resource_path("myosuite")) / model_path / model_filename
 )
 
@@ -194,8 +214,48 @@ def make(env_name: str, config_overrides=None) -> mjx_env.MjxEnv:
                     )
                 ),
             )
+        elif env_name_base == "MjxHandReachRandomCustom-v0":
+            custom_hand_reach_env_config["far_th"] = 0.034
+            custom_hand_reach_env_config["target_reach_range"] = config_dict.create(
+                THtip=jp.array(
+                    (
+                        (-0.165 - 0.020, -0.537 - 0.040, 1.495 - 0.040),
+                        (-0.165 + 0.040, -0.537 + 0.020, 1.495 + 0.040),
+                    )
+                ),
+                IFtip=jp.array(
+                    (
+                        (-0.151 - 0.040, -0.547 - 0.020, 1.455 - 0.010),
+                        (-0.151 + 0.040, -0.547 + 0.020, 1.455 + 0.010),
+                    )
+                ),
+                MFtip=jp.array(
+                    (
+                        (-0.146 - 0.040, -0.547 - 0.020, 1.447 - 0.010),
+                        (-0.146 + 0.040, -0.547 + 0.020, 1.447 + 0.010),
+                    )
+                ),
+                RFtip=jp.array(
+                    (
+                        (-0.148 - 0.040, -0.543 - 0.020, 1.445 - 0.010),
+                        (-0.148 + 0.040, -0.543 + 0.020, 1.445 + 0.010),
+                    )
+                ),
+                LFtip=jp.array(
+                    (
+                        (-0.148 - 0.040, -0.528 - 0.020, 1.434 - 0.010),
+                        (-0.148 + 0.040, -0.528 + 0.020, 1.434 + 0.010),
+                    )
+                ),
+            )
+        env_class = MjxReachEnvV0
+        env_config = hand_reach_env_config
+        if env_name_base == "MjxHandReachRandomCustom-v0":
+            env_class = CustomMjxReachEnvV0
+            env_config = custom_hand_reach_env_config
+
         registry.register_environment(
-            env_name, MjxReachEnvV0, config_callable(hand_reach_env_config)
+            env_name, env_class, config_callable(env_config)
         )
         env = registry.load(env_name, config_overrides=config_overrides)
 
@@ -209,4 +269,5 @@ env_names = [
     "MjxFingerPoseRandom-v0",
     "MjxHandReachRandom-v0",
     "MjxHandReachFixed-v0",
+    "MjxHandReachRandomCustom-v0",
 ]

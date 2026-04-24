@@ -101,12 +101,21 @@ class MjxReachEnvV0(MjxMyoBase):
         reach_err = self._reach_err(state.data, state.info)
         reach_dist = jp.linalg.norm(reach_err, axis=-1)
         solved = 1.0 * (reach_dist < self.near_th)
-        rewards = self._get_rewards(state.data, state.info)
+
+        far_th = jp.where(
+            state.data.time > 2.0 * self.mjx_model.opt.timestep,
+            self._config.far_th * self.n_targets,
+            jp.inf,
+        )
+
+        reach = -1.0 * reach_dist
+        bonus = 1.0 * (reach_dist < 2 * self.near_th) + 1.0 * (reach_dist < self.near_th)
+        penalty = -1.0 * (reach_dist > far_th)
 
         return {
-            "reach_reward": rewards["reach"],
-            "bonus_reward": rewards["bonus"],
-            "penalty_reward": rewards["penalty"],
+            "reach_reward": reach,
+            "bonus_reward": bonus,
+            "penalty_reward": penalty,
             "solved_frac": solved / self._config.max_episode_steps
         }
     
