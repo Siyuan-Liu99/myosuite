@@ -29,8 +29,13 @@ The default installation requires Python ≥3.10 and MuJoCo 3.5. See the [main R
 ## Examples
 
 For the eight hand manipulation tasks (KeyTurn, Reorient8/100, DieReorient
-P1/P2, Baoding P1/P2), see [environment details and Brax PPO/SAC commands](HAND_MANIPULATION.md).
+P1/P2, Baoding P1/P2), see [environment details and PPO/SAC/FastSAC commands](HAND_MANIPULATION.md).
 These new ports have not yet been runtime-tested.
+
+`train_jax_fastsac.py` adapts Holosoma's distributional FastSAC to the existing
+JAX/Flax/Optax stack, without installing Holosoma or PyTorch. It supports the
+hand manipulation tasks and existing Pose/Reach/PenTwirl tasks. See the linked
+guide for dependencies, checkpoint format, and implementation limitations.
 
 Train JAX PPO with:
 ```bash

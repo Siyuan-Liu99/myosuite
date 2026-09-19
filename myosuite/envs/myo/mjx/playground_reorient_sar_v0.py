@@ -66,15 +66,6 @@ class MjxSarReorientEnvV0(MjxHandManipulationBase):
         self._bot_gid = self.mj_model.geom("bot").id
         self._ttop_gid = self.mj_model.geom("t_top").id
         self._tbot_gid = self.mj_model.geom("t_bot").id
-        # The CPU environment keeps these INITIAL lengths after resizing.
-        self._obj_length = jp.linalg.norm(
-            self.mjx_model.geom_pos[self._top_gid]
-            - self.mjx_model.geom_pos[self._bot_gid]
-        )
-        self._target_length = jp.linalg.norm(
-            self.mjx_model.geom_pos[self._ttop_gid]
-            - self.mjx_model.geom_pos[self._tbot_gid]
-        )
         self._sizes = jp.array(
             SAR_8_SIZES if self._config.num_objects == 8 else SAR_100_SIZES
         )
@@ -126,12 +117,14 @@ class MjxSarReorientEnvV0(MjxHandManipulationBase):
         )
 
     def _orientation_terms(self, data):
-        obj_rot = (
-            data.geom_xpos[self._top_gid] - data.geom_xpos[self._bot_gid]
-        ) / self._obj_length
-        target_rot = (
-            data.geom_xpos[self._ttop_gid] - data.geom_xpos[self._tbot_gid]
-        ) / self._target_length
+        obj_axis = data.geom_xpos[self._top_gid] - data.geom_xpos[self._bot_gid]
+        target_axis = data.geom_xpos[self._ttop_gid] - data.geom_xpos[self._tbot_gid]
+        # Normalize using this episode's resized markers, as in MyoSuite3
+        # PR #406. Legacy CPU code cached the XML lengths, which made these
+        # direction observations scale with object size. World-space marker
+        # distances give the same lengths without shared mutable env state.
+        obj_rot = obj_axis / jp.maximum(jp.linalg.norm(obj_axis), 1e-8)
+        target_rot = target_axis / jp.maximum(jp.linalg.norm(target_axis), 1e-8)
         pos_err = data.xpos[self._obj_bid] - data.site_xpos[self._eps_sid]
         return obj_rot, target_rot, pos_err
 
