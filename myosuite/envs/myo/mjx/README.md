@@ -27,6 +27,11 @@ The default installation requires Python ≥3.10 and MuJoCo 3.5. See the [main R
    ```
 
 ## Examples
+
+For the eight hand manipulation tasks (KeyTurn, Reorient8/100, DieReorient
+P1/P2, Baoding P1/P2), see [environment details and Brax PPO/SAC commands](HAND_MANIPULATION.md).
+These new ports have not yet been runtime-tested.
+
 Train JAX PPO with:
 ```bash
 uv run train_jax_ppo.py --env_name=MjxElbowPoseRandom-v0 --impl=warp

@@ -45,7 +45,6 @@ sac_config = config_dict.create(
     deterministic_eval=False,
     seed=0,
     network_factory=config_dict.create(
-        policy_hidden_layer_sizes=(256, 256),
-        q_hidden_layer_sizes=(256, 256),
+        hidden_layer_sizes=(256, 256),
     ),
 )

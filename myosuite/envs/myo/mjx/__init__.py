@@ -11,6 +11,9 @@ from myosuite.envs.myo.mjx.playground_reach_v0 import MjxReachEnvV0
 from myosuite.envs.myo.mjx.custom_playground_reach_v0 import CustomMjxReachEnvV0
 from myosuite.envs.myo.mjx.playground_pen_v0 import MjxPenTwirlEnvV0
 from myosuite.envs.myo.mjx.rl_cfg import ppo_config
+from myosuite.envs.myo.mjx.manipulation_config import (
+    CPU_ALIASES, MANIPULATION_ENVS, register_hand_manipulation_tasks,
+)
 
 base_config = config_dict.create(
     ctrl_dt=0.02,
@@ -21,6 +24,8 @@ base_config = config_dict.create(
     impl="jax",
     norm_actions=True,
 )
+
+register_hand_manipulation_tasks(base_config)
 
 pose_env_config = config_dict.ConfigDict({**base_config, **config_dict.create(
     reward_config=config_dict.create(
@@ -120,10 +125,14 @@ def config_callable(env_config) -> Callable[[], config_dict.ConfigDict]:
 
 
 def get_default_config(env_name) -> config_dict.ConfigDict:
-    return registry.get_default_config(env_name)
+    return registry.get_default_config(CPU_ALIASES.get(env_name, env_name))
 
 # TODO: is there a reason these are not registered on import?
 def make(env_name: str, config_overrides=None) -> mjx_env.MjxEnv:
+
+    env_name = CPU_ALIASES.get(env_name, env_name)
+    if env_name in MANIPULATION_ENVS:
+        return registry.load(env_name, config_overrides=config_overrides)
 
     env_name_base = registry.get_base_env_name(env_name)
     if "MjxElbowPose" in env_name_base:
@@ -285,4 +294,5 @@ env_names = [
     "MjxHandReachRandomCustom-v0",
     "MjxHandPenTwirlFixed-v0",
     "MjxHandPenTwirlRandom-v0",
+    *MANIPULATION_ENVS,
 ]

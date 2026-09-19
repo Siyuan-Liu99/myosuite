@@ -12,7 +12,9 @@ from brax.training.agents.sac import train as sac
 from myosuite.envs.myo.mjx.rl_cfg import sac_config
 
 from myosuite.envs.myo.mjx import make, get_default_config
-from mujoco_playground import wrapper
+from myosuite.envs.myo.mjx.training_wrappers import (
+    FlatStateObservationWrapper, wrap_for_training,
+)
 import pickle
 import wandb
 import argparse
@@ -36,7 +38,7 @@ def main(env_name, impl, log_to_wandb, save_policy, num_envs=4096):
         episode_length=env._config.max_episode_steps,
         progress_fn=functools.partial(progress, log_to_wandb=log_to_wandb),
         network_factory=network_factory,
-        wrap_env_fn=wrapper.wrap_for_brax_training,
+        wrap_env_fn=wrap_for_training,
         **sac_params,
     )
 
@@ -48,6 +50,7 @@ def main(env_name, impl, log_to_wandb, save_policy, num_envs=4096):
 
 def load_env_and_network_factory(env_name, impl, num_envs=4096):
     env = make(env_name, config_overrides={"impl": impl, "num_envs": num_envs})
+    env = FlatStateObservationWrapper(env)
     config = get_default_config(env_name)
     config.update({"impl": impl, "num_envs": num_envs})
     sac_params = dict(sac_config)
