@@ -59,6 +59,12 @@ def parser():
         help="Require this JAX device platform; no silent CPU fallback",
     )
     add("device", type=int, default=0, help="Device index within CUDA_VISIBLE_DEVICES")
+    add(
+        "warp_graph_cache_size",
+        type=int,
+        default=1,
+        help="Maximum address-keyed CUDA graphs per MJX-Warp FFI callable",
+    )
     add("seed", type=int, default=42)
     add("num_envs", type=int, default=64)
     add(
@@ -163,6 +169,7 @@ def parser():
 
 def validate(p, args):
     positive = (
+        "warp_graph_cache_size",
         "num_envs",
         "num_timesteps",
         "buffer_size",

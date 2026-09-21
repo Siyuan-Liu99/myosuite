@@ -19,6 +19,20 @@ UPSTREAM_COMMIT = "bccd4d7451640a2800ddc77e469d911a84f91994"
 
 
 def train(config, versions):
+    if config.impl == "warp":
+        # MJX 3.6 uses its VENDORED Warp FFI, not warp.jax_experimental.
+        # WARP capture is keyed by array addresses. The default cache of 32
+        # graphs can retain many copies of large collision work allocations
+        # while the Python collection loop supplies new buffer addresses.
+        # Apply the supported setter before any env.reset/JIT creates callables.
+        from mujoco.mjx.third_party.warp._src.jax_experimental import ffi
+
+        ffi.set_jax_callable_default_graph_cache_max(config.warp_graph_cache_size)
+        print(
+            f"MJX-Warp graph cache: {config.warp_graph_cache_size} per FFI callable; "
+            "synchronous collection/update boundaries enabled.",
+            flush=True,
+        )
     devices = jax.devices(config.platform)
     if config.device >= len(devices):
         raise ValueError(
@@ -210,8 +224,15 @@ def _train(config, versions, device):
                     rng,
                     episode_totals,
                 )
+                # Bound work in flight, including reset/physics FFI calls.
+                # This waits on device arrays without copying the replay or
+                # simulation state to the host, and attributes OOM to this step.
+                jax.block_until_ready(
+                    (collection, buffer, normalizer, rng, episode_totals)
+                )
                 if iteration > config.learning_starts:
                     state, rng, update_metrics = update(state, buffer, normalizer, rng)
+                    jax.block_until_ready((state, rng, update_metrics))
 
                 num_steps = iteration * config.num_envs
                 should_log = (
@@ -220,8 +241,8 @@ def _train(config, versions, device):
                 )
                 should_eval = iteration in eval_iterations
                 if should_log or should_eval:
-                    # Synchronize only at reporting boundaries; rates otherwise
-                    # measure asynchronous dispatch rather than completed work.
+                    # Transfer scalar statistics at reporting boundaries only.
+                    # Physics and learning were already synchronized above.
                     host_updates, totals = jax.device_get(
                         (update_metrics, episode_totals)
                     )

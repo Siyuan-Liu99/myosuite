@@ -72,3 +72,12 @@ copy of the Holosoma training stack, and does not import Holosoma or PyTorch.
 Only source/static checks and package metadata inspection were performed during
 implementation. No environment execution, JIT compilation, training or numerical
 equivalence tests have been run.
+
+## MJX-Warp graph memory policy
+
+The FastSAC entry point sets MJX 3.6's vendored Warp FFI address-keyed graph
+cache limit to 1 per callable before tracing (upstream default: 32). Collection
+and update outputs are synchronized each iteration to bound work in flight.
+This may trade throughput for lower memory pressure; it changes neither the
+physics configuration nor SAC losses. No GPU validation has been performed
+for this memory change.

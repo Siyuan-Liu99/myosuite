@@ -19,7 +19,7 @@ python -u train_jax_sac.py --env_name=MjxChallengeDieReorientP2-v0 --impl=warp \
 
 python -u train_jax_fastsac.py --env_name=MjxChallengeDieReorientP2-v0 --impl=warp \
   --num_envs=64 --num_timesteps=100000000 --seed=42 --batch_size=256 \
-  --buffer_size=4096 --learning_starts=128 --num_updates=8 --policy_frequency=4 \
+  --warp_graph_cache_size=1 --buffer_size=4096 --learning_starts=128 --num_updates=8 --policy_frequency=4 \
   --reward_scale=0.01 --num_evals=21 --num_eval_envs=64 --save_interval=78125 \
   --log_to_wandb --wandb_project=myosuite
 
@@ -31,13 +31,13 @@ python -u train_jax_sac.py --env_name=MjxHandReorient100-v0 --impl=warp \
 
 python -u train_jax_fastsac.py --env_name=MjxHandReorient100-v0 --impl=warp \
   --num_envs=64 --num_timesteps=100000000 --seed=42 --batch_size=256 \
-  --buffer_size=4096 --learning_starts=128 --num_updates=8 --policy_frequency=4 \
+  --warp_graph_cache_size=1 --buffer_size=4096 --learning_starts=128 --num_updates=8 --policy_frequency=4 \
   --reward_scale=0.01 --num_evals=21 --num_eval_envs=64 --save_interval=78125 \
   --log_to_wandb --wandb_project=myosuite
 
 python -u train_jax_fastsac.py --env_name=MjxChallengeDieReorientP1-v0 --impl=warp \
   --num_envs=64 --num_timesteps=100000000 --seed=42 --batch_size=256 \
-  --buffer_size=4096 --learning_starts=128 --num_updates=8 --policy_frequency=4 \
+  --warp_graph_cache_size=1 --buffer_size=4096 --learning_starts=128 --num_updates=8 --policy_frequency=4 \
   --reward_scale=0.01 --num_evals=21 --num_eval_envs=64 --save_interval=78125 \
   --log_to_wandb --wandb_project=myosuite
 
