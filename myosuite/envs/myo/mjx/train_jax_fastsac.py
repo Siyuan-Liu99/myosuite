@@ -60,7 +60,7 @@ def parser():
     )
     add("device", type=int, default=0, help="Device index within CUDA_VISIBLE_DEVICES")
     add("seed", type=int, default=42)
-    add("num_envs", type=int, default=256)
+    add("num_envs", type=int, default=64)
     add(
         "num_timesteps",
         type=int,
@@ -70,19 +70,19 @@ def parser():
     add(
         "buffer_size",
         type=int,
-        default=1024,
+        default=4096,
         help="Replay capacity in control steps PER environment",
     )
     add(
         "batch_size",
         type=int,
-        default=1024,
+        default=256,
         help="Total transitions per gradient update, independent of num_envs",
     )
     add(
         "learning_starts",
         type=int,
-        default=32,
+        default=128,
         help="Collect this many vector steps before learning",
     )
     add("num_updates", type=int, default=8, help="Critic updates per vector step")
@@ -132,12 +132,12 @@ def parser():
         default=21,
         help="Deterministic evaluations including step zero when >=2; zero disables",
     )
-    add("num_eval_envs", type=int, default=128)
+    add("num_eval_envs", type=int, default=64)
     add("log_interval", type=int, default=100, help="Logging interval in vector steps")
     add(
         "save_interval",
         type=int,
-        default=19532,
+        default=78125,
         help="Checkpoint interval in vector steps; zero saves only at the end",
     )
     add(

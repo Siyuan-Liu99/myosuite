@@ -28,10 +28,10 @@ def parser():
 
     add("env_name", default="MjxHandKeyTurnFixed-v0")
     add("impl", choices=("jax", "warp"), default="warp")
-    add("num_envs", type=int, default=256)
+    add("num_envs", type=int, default=64)
     add("num_timesteps", type=int, default=100_000_000)
     add("seed", type=int, default=42)
-    add("batch_size", type=int, default=1024)
+    add("batch_size", type=int, default=256)
     add(
         "min_replay_size",
         type=int,
@@ -51,7 +51,7 @@ def parser():
         default=21,
         help="Evaluations including step zero when >=2",
     )
-    add("num_eval_envs", type=int, default=128)
+    add("num_eval_envs", type=int, default=64)
     add("deterministic_eval", action=argparse.BooleanOptionalAction, default=True)
     add(
         "reward_scaling",
@@ -127,7 +127,7 @@ def check_finite_metrics(values, num_steps, run_dir):
     )
 
 
-def load_env_and_network_factory(env_name, impl, num_envs=256, **overrides):
+def load_env_and_network_factory(env_name, impl, num_envs=64, **overrides):
     from brax.training.agents.sac import networks as sac_networks
     from myosuite.envs.myo.mjx import make, get_default_config
     from myosuite.envs.myo.mjx.rl_cfg import sac_config
@@ -153,7 +153,7 @@ def main(
     impl,
     log_to_wandb,
     save_policy,
-    num_envs=256,
+    num_envs=64,
     *,
     wandb_project="myosuite",
     wandb_entity=None,
@@ -164,9 +164,12 @@ def main(
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
     import jax
     from brax.training.agents.sac import train as sac
+    from myosuite.envs.myo.mjx import make
     from myosuite.envs.myo.mjx.manipulation_config import CPU_ALIASES
     from myosuite.envs.myo.mjx.rl_cfg import sac_config
-    from myosuite.envs.myo.mjx.training_wrappers import wrap_for_training
+    from myosuite.envs.myo.mjx.training_wrappers import (
+        FlatStateObservationWrapper, wrap_for_training,
+    )
 
     started = time.monotonic()
     env_name = CPU_ALIASES.get(env_name, env_name)
@@ -180,6 +183,14 @@ def main(
         raise RuntimeError("--impl=warp requires a GPU JAX backend")
     env, sac_params, network_factory = load_env_and_network_factory(
         env_name, impl, num_envs, **overrides
+    )
+    # Give evaluation its own correctly sized Warp buffers and mark it for
+    # first-episode metric masking, without changing the training environment.
+    eval_env = FlatStateObservationWrapper(
+        make(env_name, config_overrides={
+            "impl": impl, "num_envs": sac_params["num_eval_envs"]
+        }),
+        evaluation=True,
     )
     metadata = {
         "algorithm": "sac",
@@ -234,6 +245,7 @@ def main(
 
             _, params, _ = sac.train(
                 environment=env,
+                eval_env=eval_env,
                 num_envs=num_envs,
                 episode_length=env._config.max_episode_steps,
                 progress_fn=progress,
