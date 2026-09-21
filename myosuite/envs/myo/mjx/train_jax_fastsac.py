@@ -59,30 +59,30 @@ def parser():
         help="Require this JAX device platform; no silent CPU fallback",
     )
     add("device", type=int, default=0, help="Device index within CUDA_VISIBLE_DEVICES")
-    add("seed", type=int, default=0)
-    add("num_envs", type=int, default=1024)
+    add("seed", type=int, default=42)
+    add("num_envs", type=int, default=256)
     add(
         "num_timesteps",
         type=int,
-        default=10_000_000,
+        default=100_000_000,
         help="Total control transitions across all environments, rounded up to a vector step",
     )
     add(
         "buffer_size",
         type=int,
-        default=256,
+        default=1024,
         help="Replay capacity in control steps PER environment",
     )
     add(
         "batch_size",
         type=int,
-        default=4096,
+        default=1024,
         help="Total transitions per gradient update, independent of num_envs",
     )
     add(
         "learning_starts",
         type=int,
-        default=10,
+        default=32,
         help="Collect this many vector steps before learning",
     )
     add("num_updates", type=int, default=8, help="Critic updates per vector step")
@@ -129,15 +129,15 @@ def parser():
     add(
         "num_evals",
         type=int,
-        default=16,
-        help="Fresh deterministic-policy evaluations; zero disables",
+        default=21,
+        help="Deterministic evaluations including step zero when >=2; zero disables",
     )
     add("num_eval_envs", type=int, default=128)
     add("log_interval", type=int, default=100, help="Logging interval in vector steps")
     add(
         "save_interval",
         type=int,
-        default=2500,
+        default=19532,
         help="Checkpoint interval in vector steps; zero saves only at the end",
     )
     add(

@@ -15,7 +15,6 @@ from myosuite.envs.myo.mjx.fast_sac.learner import FastSAC, Normalizer
 from myosuite.envs.myo.mjx.fast_sac.networks import deterministic_action, sample_action
 from myosuite.envs.myo.mjx.manipulation_config import CPU_ALIASES
 
-
 UPSTREAM_COMMIT = "bccd4d7451640a2800ddc77e469d911a84f91994"
 
 
@@ -30,9 +29,11 @@ def train(config, versions):
 
 
 def _train(config, versions, device):
+    experiment_started = time.monotonic()
     config.env_name = CPU_ALIASES.get(config.env_name, config.env_name)
-    run_name = f"{config.env_name}-fastsac-{datetime.now():%Y%m%d-%H%M%S-%f}"
-    log_dir = Path(config.log_dir).expanduser().resolve() / run_name
+    stamp = datetime.now()
+    run_name = f"{config.env_name}-fastsac-{stamp:%m%d-%H%M}"
+    log_dir = Path(config.log_dir).expanduser().resolve() / f"{run_name}-{stamp:%Y%S%f}"
     log_dir.mkdir(parents=True, exist_ok=False)
     print(
         f"Device: {device}\nPhysics: {config.impl}\nRun directory: {log_dir}",
@@ -153,12 +154,13 @@ def _train(config, versions, device):
             return eval_env.evaluate(policy, key)
 
     total_iterations = math.ceil(config.num_timesteps / config.num_envs)
-    # Evenly spaced checkpoints in transition budget; exactly num_evals unless
-    # there are fewer vector steps, in which case duplicate positions collapse.
+    # Like Brax, count an initial evaluation when num_evals >= 2.
+    # Remaining evaluations cover the transition budget, including the end.
+    evals_after_init = max(config.num_evals - 1, 1)
     eval_iterations = (
         {
-            math.ceil(i * total_iterations / config.num_evals)
-            for i in range(1, config.num_evals + 1)
+            math.ceil(i * total_iterations / evals_after_init)
+            for i in range(1, evals_after_init + 1)
         }
         if config.num_evals
         else set()
@@ -180,6 +182,25 @@ def _train(config, versions, device):
     update_metrics = {}
     try:
         with (log_dir / "metrics.jsonl").open("a", encoding="utf-8") as log_file:
+            if config.num_evals >= 2:
+                eval_rng, key = jax.random.split(eval_rng)
+                eval_started = time.monotonic()
+                result = jax.device_get(evaluate(state.actor.params, normalizer, key))
+                initial = {key: float(value) for key, value in result.items()}
+                initial["eval/walltime"] = time.monotonic() - eval_started
+                initial["training/env_steps"] = 0
+                initial["experiment/walltime"] = time.monotonic() - experiment_started
+                if not all(math.isfinite(value) for value in initial.values()):
+                    raise FloatingPointError("Non-finite initial evaluation metrics")
+                log_file.write(json.dumps(initial) + "\n")
+                log_file.flush()
+                if run is not None:
+                    run.log(initial, step=0)
+                print(
+                    f"steps=0 eval/episode_reward={initial['eval/episode_reward']:.4f}",
+                    flush=True,
+                )
+                last_log_time = time.monotonic()
             for iteration in range(1, total_iterations + 1):
                 normalizer, collection, buffer, rng, episode_totals = collect(
                     state.actor.params,
@@ -243,6 +264,9 @@ def _train(config, versions, device):
                             {key: float(value) for key, value in result.items()}
                         )
                         metrics["eval/walltime"] = time.monotonic() - eval_started
+                    metrics["experiment/walltime"] = (
+                        time.monotonic() - experiment_started
+                    )
                     if not all(math.isfinite(value) for value in metrics.values()):
                         raise FloatingPointError(
                             "Non-finite training/evaluation metrics; inspect simulator state and learning configuration."

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd -- "$(dirname -- "$0")"
+. ../../../../.venv/bin/activate
+
+export CUDA_DEVICE_ORDER=PCI_BUS_ID
+export CUDA_VISIBLE_DEVICES=0
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+
+# RTX 2080 Ti GPU 0: 6 sequential runs; stop if a run fails.
+# One seed (42), 100M total transitions per run, W&B project myosuite.
+
+python -u train_jax_sac.py --env_name=MjxHandKeyTurnFixed-v0 --impl=warp \
+  --num_envs=256 --num_timesteps=100000000 --seed=42 --batch_size=1024 \
+  --min_replay_size=8192 --max_replay_size=262144 --grad_updates_per_step=1 \
+  --reward_scaling=0.01 --num_evals=21 --num_eval_envs=128 --deterministic_eval \
+  --log_to_wandb --wandb_project=myosuite --save_policy
+
+python -u train_jax_fastsac.py --env_name=MjxHandKeyTurnFixed-v0 --impl=warp \
+  --num_envs=256 --num_timesteps=100000000 --seed=42 --batch_size=1024 \
+  --buffer_size=1024 --learning_starts=32 --num_updates=8 --policy_frequency=4 \
+  --reward_scale=0.01 --num_evals=21 --num_eval_envs=128 --save_interval=19532 \
+  --log_to_wandb --wandb_project=myosuite
+
+python -u train_jax_sac.py --env_name=MjxHandKeyTurnRandom-v0 --impl=warp \
+  --num_envs=256 --num_timesteps=100000000 --seed=42 --batch_size=1024 \
+  --min_replay_size=8192 --max_replay_size=262144 --grad_updates_per_step=1 \
+  --reward_scaling=0.01 --num_evals=21 --num_eval_envs=128 --deterministic_eval \
+  --log_to_wandb --wandb_project=myosuite --save_policy
+
+python -u train_jax_sac.py --env_name=MjxChallengeDieReorientP1-v0 --impl=warp \
+  --num_envs=256 --num_timesteps=100000000 --seed=42 --batch_size=1024 \
+  --min_replay_size=8192 --max_replay_size=262144 --grad_updates_per_step=1 \
+  --reward_scaling=0.01 --num_evals=21 --num_eval_envs=128 --deterministic_eval \
+  --log_to_wandb --wandb_project=myosuite --save_policy
+
+python -u train_jax_sac.py --env_name=MjxChallengeBaodingP2-v1 --impl=warp \
+  --num_envs=256 --num_timesteps=100000000 --seed=42 --batch_size=1024 \
+  --min_replay_size=8192 --max_replay_size=262144 --grad_updates_per_step=1 \
+  --reward_scaling=1.0 --num_evals=21 --num_eval_envs=128 --deterministic_eval \
+  --log_to_wandb --wandb_project=myosuite --save_policy
+
+python -u train_jax_fastsac.py --env_name=MjxChallengeBaodingP2-v1 --impl=warp \
+  --num_envs=256 --num_timesteps=100000000 --seed=42 --batch_size=1024 \
+  --buffer_size=1024 --learning_starts=32 --num_updates=8 --policy_frequency=4 \
+  --reward_scale=1.0 --num_evals=21 --num_eval_envs=128 --save_interval=19532 \
+  --log_to_wandb --wandb_project=myosuite
+
