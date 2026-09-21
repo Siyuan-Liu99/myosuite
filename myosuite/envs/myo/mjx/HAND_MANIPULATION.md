@@ -45,27 +45,27 @@ source /home/lsy/pycode/myosuite/.venv/bin/activate
 | 参数 | Brax SAC | JAX FastSAC |
 | --- | --- | --- |
 | 物理后端 | MJX-Warp | MJX-Warp |
-| 单卡环境数 | 256 | 256 |
+| 单卡环境数 | 64 | 64 |
 | 总控制步数 | 100,000,000 | 100,000,000 |
 | seed | 42 | 42 |
-| 每次梯度更新 batch | 1024 | 1024 |
+| 每次梯度更新 batch | 256 | 256 |
 | 回放总容量 | 262,144 条 | 262,144 条 |
-| 回放参数 | `max_replay_size=262144` | `buffer_size=1024`，每环境容量 |
-| 预热采样 | `min_replay_size=8192` | `learning_starts=32` × 256 = 8192 |
+| 回放参数 | `max_replay_size=262144` | `buffer_size=4096`，每环境容量 |
+| 预热采样 | `min_replay_size=8192` | `learning_starts=128` × 64 = 8192 |
 | 折扣率 / 学习率 | 0.97 / 3e-4 | 0.97 / 3e-4 |
-| 评估 | 21 次，每次 128 局，确定性策略 | 同左 |
+| 评估 | 21 次，每次 64 局，确定性策略 | 同左 |
 | 每次采样后的 critic / actor 更新 | 1 / 1 | 8 / 2 |
 
 **1 亿步是所有环境累计的 transition，不是每个环境 1 亿步，也不是物理子步。**
-256 个环境对应约 390,625 次采样。它是统一的长训练预算，远大于过去的 1.5M/3M；
+64 个环境对应约 1,562,500 次采样。它是统一的长训练预算，远大于过去的 1.5M/3M；
 并行不会让相同的 timestep 变成更多样本。16 组总预算为 16 亿 transition。
 保留 step 0 和大约每 5M 步的评估，可查看 5M、10M、20M 等阶段的学习曲线。
-Brax 按完整评估区间向上取整，在本配置下实际结束于 100,001,792 步；
+Brax 按完整评估区间向上取整，在本配置下实际结束于 100,000,512 步；
 FastSAC 结束于 100,000,000 步，这个微小差异应按日志中的实际步数比较。
 
 [NVIDIA 规格](https://www.nvidia.com/content/nvidiaGDC/zz/en_ZZ/geforce/graphics-cards/rtx-2080-ti.html)
-列出的 RTX 2080 Ti 显存为 11GB。256 环境是**尚未实测的保守起点**，并非已确认
-最大并行数；不按“能塞满显存”选择环境数。接触/约束、完整重置、JIT 临时缓冲、
+列出的 RTX 2080 Ti 显存为 11GB。原先的 256 环境在服务器 FastSAC 采样阶段发生 Warp 显存分配失败，
+现将训练环境降为 **64**，评估也降为 **64**；新配置仍待服务器验证。接触/约束、完整重置、JIT 临时缓冲、
 评估和网络反向传播也需要显存，尤其 Reorient 的多形状接触应留余量。
 
 回放数组可以静态估算：若观测维数为 D、动作维数为 A，Brax 约为
@@ -76,10 +76,25 @@ FastSAC 结束于 100,000,000 步，这个微小差异应按日志中的实际�
 
 脚本关闭 JAX 预分配，让 JAX 与 Warp 按需申请显存；这不是显存上限，
 也不保证不会 OOM。[JAX 显存说明](https://docs.jax.dev/en/latest/gpu_memory_allocation.html)。
-若某任务实测仍超显存，成对调整该任务的两种算法，先将环境数改成 128；
-保持总回放与预热量时，FastSAC 对应改为 `buffer_size=2048`、
-`learning_starts=64`，并记录改变后的实验配置。若是 learner 反向传播峰值，
-再成对减少 batch。不要只改一种算法而不记录。
+当前每环境接触/CCD 容量仍为 256，CCD 迭代仍为 150；不裁减碰撞容量或精度。
+报错中的 `epa_pr` 单数组申请为 594,542,592 字节（567 MiB），它来自
+`256环境 × 256容量 × (6 + 5 × 150) × 12字节`。
+改为 64 环境后同一数组约为 141.75 MiB，其他按环境增长的物理缓冲也随之缩小；
+仍不能把这一数组大小当作总峰值显存。Batch 同步从 1024 降为 256，保持
+`batch × 每次采样的更新次数 / 环境数`：SAC 为 4、FastSAC 为 32。
+FastSAC 的回放改为每环境 4096 条、预热 128 次采样，总容量及预热样本量不变。
+
+如仍超显存，应先检查该物理 GPU 是否有其他进程以及实际峰值。
+已经正常运行的旧配置不用中断，但其结果需标记为旧配置，不能与新配置当作
+完全一致的参数实验。每个脚本每条 Python 命令都是新进程；重新启动队列时，
+注意跳过已经完成的命令。
+
+Brax SAC 的评估环境单独创建，按评估环境数分配 Warp 缓冲。
+另加第一局指标筛选：已结束环境之后产生的 NaN/Inf 不再经由 `0 × NaN`
+污染第一局统计；活跃 episode 内的非有限值仍会报错并保存
+`nonfinite_metrics.json`，没有用零替换真实的首局异常。
+DieP2 附件已确认异常指标为位置距离奖励及总奖励；这项屏蔽修复不等于已经
+验证其物理稳定性，若首局仍非有限，需要继续定位仿真状态。
 
 两者同一任务使用相同的 learner 奖励缩放：KeyTurn、Reorient（含 Die）为
 0.01，Baoding 为 1.0；记录的 episode reward 保持原始尺度。
@@ -140,20 +155,20 @@ python train_jax_ppo.py --env_name=MjxChallengeBaodingP2-v1 --impl=warp --num_en
 ## SAC：八个任务的命令
 
 ```bash
-python train_jax_sac.py --env_name=MjxHandKeyTurnFixed-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_sac.py --env_name=MjxHandKeyTurnRandom-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_sac.py --env_name=MjxHandReorient8-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_sac.py --env_name=MjxHandReorient100-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_sac.py --env_name=MjxChallengeDieReorientP1-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_sac.py --env_name=MjxChallengeDieReorientP2-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_sac.py --env_name=MjxChallengeBaodingP1-v1 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_sac.py --env_name=MjxChallengeBaodingP2-v1 --impl=warp --num_envs=256 --log_to_wandb
+python train_jax_sac.py --env_name=MjxHandKeyTurnFixed-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_sac.py --env_name=MjxHandKeyTurnRandom-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_sac.py --env_name=MjxHandReorient8-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_sac.py --env_name=MjxHandReorient100-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_sac.py --env_name=MjxChallengeDieReorientP1-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_sac.py --env_name=MjxChallengeDieReorientP2-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_sac.py --env_name=MjxChallengeBaodingP1-v1 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_sac.py --env_name=MjxChallengeBaodingP2-v1 --impl=warp --num_envs=64 --log_to_wandb
 ```
 
 PPO 使用环境的 `{"state": observation}`，SAC 入口通过
 `FlatStateObservationWrapper` 取出数组，以匹配本地 Brax SAC 接口。
 PPO 仍为 10M 步、16 次评估；SAC 为 100M 步、21 次评估（含 step 0），
-每次 128 个 episode。SAC 默认为确定性策略评估，seed 42。
+SAC 每次 64 个 episode（PPO 仍为 128）。SAC 默认为确定性策略评估，seed 42。
 SAC 资源参数可以在命令行覆盖，`python train_jax_sac.py --help` 不初始化 GPU。
 
 PPO/SAC 均写入 W&B **`myosuite` project**；不传 `--log_to_wandb` 则关闭。
@@ -206,33 +221,33 @@ python train_jax_fastsac.py --check_dependencies
 改用 CPU。示例并行数和超参数尚未测量显存或调优。
 
 ```bash
-python train_jax_fastsac.py --env_name=MjxHandKeyTurnFixed-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_fastsac.py --env_name=MjxHandKeyTurnRandom-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_fastsac.py --env_name=MjxHandReorient8-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_fastsac.py --env_name=MjxHandReorient100-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_fastsac.py --env_name=MjxChallengeDieReorientP1-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_fastsac.py --env_name=MjxChallengeDieReorientP2-v0 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_fastsac.py --env_name=MjxChallengeBaodingP1-v1 --impl=warp --num_envs=256 --log_to_wandb
-python train_jax_fastsac.py --env_name=MjxChallengeBaodingP2-v1 --impl=warp --num_envs=256 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxHandKeyTurnFixed-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxHandKeyTurnRandom-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxHandReorient8-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxHandReorient100-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxChallengeDieReorientP1-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxChallengeDieReorientP2-v0 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxChallengeBaodingP1-v1 --impl=warp --num_envs=64 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxChallengeBaodingP2-v1 --impl=warp --num_envs=64 --log_to_wandb
 ```
 
 也支持本地已注册的 Pose、Reach、PenTwirl 环境；八个新任务可以使用表格中的
 CPU 名称别名。转笔示例：
 
 ```bash
-python train_jax_fastsac.py --env_name=MjxHandPenTwirlRandom-v0 --impl=warp --num_envs=256 --log_to_wandb
+python train_jax_fastsac.py --env_name=MjxHandPenTwirlRandom-v0 --impl=warp --num_envs=64 --log_to_wandb
 ```
 
 ### 参数、回放和算法差异
 
 - `--num_timesteps=100000000`：默认总计 100M 个**控制步 transition**，跨所有
   并行环境计数，向上取整到完整 vector step；物理子步由环境自己执行。
-- `--buffer_size=1024`：**每个环境**存 1024 个控制步；256 个环境合计 262144
+- `--buffer_size=4096`：**每个环境**存 4096 个控制步；64 个环境合计 262144
   条 transition。回放存原始观测及重置前 next_obs，启动时会打印预计占用。
-- `--batch_size=1024`：每次梯度更新的总样本数，不再乘 `num_envs`。
+- `--batch_size=256`：每次梯度更新的总样本数，不再乘 `num_envs`。
   `--num_updates=8`：每个 vector step 后更新 critic 8 次。
   `--policy_frequency=4`：每 4 次 critic 更新做一次 actor 更新。
-- `--learning_starts=32`：先收集 32 个 vector step，即 8192 条 transition。
+- `--learning_starts=128`：先收集 128 个 vector step，即 8192 条 transition。
   `--num_steps=1` 是 n-step return 的 n，可以设为 3 等；它不是 frame_skip。
   buffer_size 和 learning_starts 都必须不小于 n。
 - 保留离散回报分布表示（categorical distributional critic）、各 critic
@@ -267,7 +282,7 @@ FastSAC 默认 seed 42，写入 W&B `myosuite` project，run 名为
 本地始终保存 `config.json` 和 `metrics.jsonl`，默认目录为当前工作目录下
 `runs/fastsac/<run名>-<唯一时间后缀>/`，可用 `--log_dir` 指定根目录。
 
-- 默认 21 次评估（含 step 0 和训练结束），每次 128 个新 episode，使用确定性策略并冻结观测归一化。
+- 默认 21 次评估（含 step 0 和训练结束），每次 64 个新 episode，使用确定性策略并冻结观测归一化。
   `eval/episode_solved_frac`、`eval/episode_solved_per_step`、
   `eval/episode_success` 的定义与下文一致；每个评估环境只统计第一局。
 - `training/episode_*` 是**本次日志窗口内已完成 episode**的均值，
@@ -277,14 +292,14 @@ FastSAC 默认 seed 42，写入 W&B `myosuite` project，run 名为
   首个窗口包含 JIT 时间；评估时间单列 `eval/walltime`。
   `training/actor_updates` 是最近一组更新中的 actor 更新数，
   `training/gradient_steps` 是累计 critic 更新数。
-- 默认每 19532 个 vector step（256 环境下约 5M transition） 及结束时保存 `.msgpack` 和对应 `.json`。
+- 默认每 78125 个 vector step（64 环境下 5M transition） 及结束时保存 `.msgpack` 和对应 `.json`。
   `--save_interval=0` 仅关闭中间保存，结束仍保存；不需要 `--save_policy`。
   参数、优化器、归一化状态均保留，但**不保存回放和物理环境状态**。
 
 加载已有 checkpoint 继续优化（warm start；重新填充回放并启动新的统计）：
 
 ```bash
-python train_jax_fastsac.py --env_name=MjxHandKeyTurnFixed-v0 --impl=warp --num_envs=256 \
+python train_jax_fastsac.py --env_name=MjxHandKeyTurnFixed-v0 --impl=warp --num_envs=64 \
   --load_checkpoint=/path/to/step_000010000384.msgpack --log_to_wandb
 ```
 

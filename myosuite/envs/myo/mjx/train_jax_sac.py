@@ -168,7 +168,8 @@ def main(
     from myosuite.envs.myo.mjx.manipulation_config import CPU_ALIASES
     from myosuite.envs.myo.mjx.rl_cfg import sac_config
     from myosuite.envs.myo.mjx.training_wrappers import (
-        FlatStateObservationWrapper, wrap_for_training,
+        FlatStateObservationWrapper,
+        wrap_for_training,
     )
 
     started = time.monotonic()
@@ -187,9 +188,10 @@ def main(
     # Give evaluation its own correctly sized Warp buffers and mark it for
     # first-episode metric masking, without changing the training environment.
     eval_env = FlatStateObservationWrapper(
-        make(env_name, config_overrides={
-            "impl": impl, "num_envs": sac_params["num_eval_envs"]
-        }),
+        make(
+            env_name,
+            config_overrides={"impl": impl, "num_envs": sac_params["num_eval_envs"]},
+        ),
         evaluation=True,
     )
     metadata = {

@@ -38,16 +38,17 @@ class FirstEpisodeMetricsWrapper(wrapper.Wrapper):
 
     def reset(self, rng):
         state = self.env.reset(rng)
-        return state.replace(info={
-            **state.info, self._active_key: jp.ones_like(state.done, dtype=bool)
-        })
+        return state.replace(
+            info={**state.info, self._active_key: jp.ones_like(state.done, dtype=bool)}
+        )
 
     def step(self, state, action):
         active = state.info[self._active_key]
         # Do not expose our bookkeeping to the inner full-reset wrapper: its
         # candidate reset state has a different info structure otherwise.
-        info = {key: value for key, value in state.info.items()
-                if key != self._active_key}
+        info = {
+            key: value for key, value in state.info.items() if key != self._active_key
+        }
         stepped = self.env.step(state.replace(info=info), action)
 
         def first_episode(value):
@@ -57,8 +58,10 @@ class FirstEpisodeMetricsWrapper(wrapper.Wrapper):
         return stepped.replace(
             reward=first_episode(stepped.reward),
             metrics=jax.tree.map(first_episode, stepped.metrics),
-            info={**stepped.info,
-                  self._active_key: active & ~stepped.done.astype(bool)},
+            info={
+                **stepped.info,
+                self._active_key: active & ~stepped.done.astype(bool),
+            },
         )
 
 

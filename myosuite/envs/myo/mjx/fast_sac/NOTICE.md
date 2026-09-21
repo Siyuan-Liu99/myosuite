@@ -44,9 +44,9 @@ copy of the Holosoma training stack, and does not import Holosoma or PyTorch.
   for policy_frequency=1 and numbers of updates not divisible by the frequency.
 - Replay batch size is an exact TOTAL sample count, sampled uniformly across
   valid time/environment pairs. It is not rounded to a multiple of num_envs.
-  Default capacity is 1024 steps per world (also the upstream generic default).
-  The 2080 Ti comparison preset uses 256 worlds, 262144 total replay entries,
-  batch size 1024, and 32 warmup vector steps (8192 transitions). These resource
+  Default capacity is 4096 steps per world (upstream generic default: 1024).
+  The 2080 Ti comparison preset uses 64 worlds, 262144 total replay entries,
+  batch size 256, and 128 warmup vector steps (8192 transitions). These resource
   defaults have not been validated on an RTX 2080 Ti.
 - n-step returns stop at either termination or truncation. Both reward masking
   and the bootstrap discount use the actual number of steps; timeouts bootstrap
