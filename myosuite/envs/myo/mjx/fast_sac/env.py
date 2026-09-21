@@ -115,6 +115,15 @@ class VectorEnv:
             "solved_frac": jp.sum(jp.where(ended, solved_steps / self.horizon, 0.0)),
             "solved_per_step": jp.sum(jp.where(ended, solved_steps / lengths, 0.0)),
             "success": jp.sum(ended & (solved_steps > 0)),
+            "numerical_failure": jp.sum(
+                jp.where(
+                    ended,
+                    stepped.metrics.get(
+                        "numerical_failure", jp.zeros_like(ended, dtype=jp.float32)
+                    ),
+                    0.0,
+                )
+            ),
         }
         return (
             state.replace(
@@ -135,7 +144,7 @@ class VectorEnv:
         zero = jp.zeros(self.num_envs)
 
         def step(carry, _):
-            state, alive, returns, lengths, solved_steps = carry
+            state, alive, returns, lengths, solved_steps, failures = carry
             stepped = self._step(state, policy(observation(state)))
             # Freeze finished worlds so dropped objects do not continue falling
             # for the remaining evaluation horizon. Their extra step results
@@ -152,11 +161,14 @@ class VectorEnv:
             solved_steps += (alive & (state.metrics["solved_frac"] > 0)).astype(
                 jp.float32
             )
+            failures += jp.where(
+                alive, state.metrics.get("numerical_failure", zero), 0.0
+            )
             alive &= ~state.done.astype(bool)
-            return (state, alive, returns, lengths, solved_steps), None
+            return (state, alive, returns, lengths, solved_steps, failures), None
 
-        (_, _, returns, lengths, solved_steps), _ = jax.lax.scan(
-            step, (state, alive, zero, zero, zero), None, length=self.horizon
+        (_, _, returns, lengths, solved_steps, failures), _ = jax.lax.scan(
+            step, (state, alive, zero, zero, zero, zero), None, length=self.horizon
         )
         return {
             "eval/episode_reward": jp.mean(returns),
@@ -166,4 +178,5 @@ class VectorEnv:
                 solved_steps / jp.maximum(lengths, 1)
             ),
             "eval/episode_success": jp.mean((solved_steps > 0).astype(jp.float32)),
+            "eval/episode_numerical_failure": jp.mean(failures),
         }

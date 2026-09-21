@@ -7,6 +7,7 @@ from myosuite.envs.myo.mjx.mjx_base_env import MjxMyoBase
 
 
 class MjxPoseEnvV0(MjxMyoBase):
+    requires_full_reset = True
 
     def generate_target_pose(self, rng: jp.ndarray) -> Dict[str, jp.ndarray]:
         targets = []

@@ -14,6 +14,7 @@ from mujoco_playground import State
 from mujoco_playground._src import mjx_env
 
 from myosuite.envs.myo.mjx.mjx_base_env import MjxMyoBase, make_data
+from myosuite.envs.myo.mjx.numerical_safety import sanitize_state
 
 
 def uniform(rng, bounds, shape=()):
@@ -99,13 +100,15 @@ class MjxHandManipulationBase(MjxMyoBase):
             solved_per_step=jp.array(0.0),
             success=jp.array(0.0),
         )
-        return State(
-            data,
-            self._get_obs(data, info),
-            jp.array(0.0),
-            jp.array(0.0),
-            metrics,
-            info,
+        return sanitize_state(
+            State(
+                data,
+                self._get_obs(data, info),
+                jp.array(0.0),
+                jp.array(0.0),
+                metrics,
+                info,
+            )
         )
 
     def _prepare_step(self, state):
@@ -139,15 +142,17 @@ class MjxHandManipulationBase(MjxMyoBase):
         reward = sum(
             weight * terms[key] for key, weight in self._config.reward_weights.items()
         )
-        return state.replace(
-            obs=self._get_obs(state.data, state.info),
-            reward=reward,
-            done=terms["done"].astype(jp.float32),
-            metrics=metrics,
-            info={
-                **state.info,
-                "success_seen": state.info["success_seen"] | terms["solved"],
-            },
+        return sanitize_state(
+            state.replace(
+                obs=self._get_obs(state.data, state.info),
+                reward=reward,
+                done=terms["done"].astype(jp.float32),
+                metrics=metrics,
+                info={
+                    **state.info,
+                    "success_seen": state.info["success_seen"] | terms["solved"],
+                },
+            )
         )
 
     def _get_rewards(self, data, info):

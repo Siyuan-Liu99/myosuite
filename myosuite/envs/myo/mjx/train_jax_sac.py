@@ -4,6 +4,7 @@ Argument parsing is standard-library-only: --help does not initialize CUDA.
 """
 
 import argparse
+import copy
 from datetime import datetime
 import functools
 import json
@@ -138,6 +139,8 @@ def load_env_and_network_factory(env_name, impl, num_envs=64, **overrides):
     env = FlatStateObservationWrapper(
         make(env_name, config_overrides={"impl": impl, "num_envs": num_envs})
     )
+    # Legacy Pose/Reach/Pen factories share mutable default configs.
+    env.unwrapped._config = copy.deepcopy(env.unwrapped._config)
     config = get_default_config(env_name)
     config.update({"impl": impl, "num_envs": num_envs})
     sac_params = sac_config.to_dict()
@@ -167,6 +170,10 @@ def main(
     import jax
     from myosuite.envs.myo.mjx import brax_sac_train as sac
     from myosuite.envs.myo.mjx import make
+    from myosuite.envs.myo.mjx.comparison_logging import (
+        comparison_metrics,
+        configure_wandb_metrics,
+    )
     from myosuite.envs.myo.mjx.manipulation_config import CPU_ALIASES
     from myosuite.envs.myo.mjx.rl_cfg import sac_config
     from myosuite.envs.myo.mjx.training_wrappers import (
@@ -237,6 +244,7 @@ def main(
             config=metadata,
             dir=str(run_dir),
         )
+        configure_wandb_metrics(run)
     try:
         with (run_dir / "metrics.jsonl").open("a", encoding="utf-8") as log_file:
 
@@ -244,6 +252,7 @@ def main(
                 values = {key: float(value) for key, value in metrics.items()}
                 values["training/env_steps"] = int(num_steps)
                 values["experiment/walltime"] = time.monotonic() - started
+                values = comparison_metrics(values, num_steps)
                 check_finite_metrics(values, num_steps, run_dir)
                 log_file.write(json.dumps(values) + "\n")
                 log_file.flush()
@@ -255,6 +264,12 @@ def main(
                 for name in ("critic_loss", "actor_loss", "alpha", "sps"):
                     if f"training/{name}" in values:
                         details.append(f"{name}={values[f'training/{name}']:.3f}")
+                for key in (
+                    "eval/episode_numerical_failure",
+                    "training/numerical_failure_per_step",
+                ):
+                    if values.get(key, 0) > 0:
+                        details.append(f"{key}={values[key]:.6f}")
                 print(f"Step {num_steps:,}: {', '.join(details)}", flush=True)
                 if run is not None:
                     run.log(values, step=int(num_steps))

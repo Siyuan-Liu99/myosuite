@@ -14,6 +14,10 @@ from myosuite.envs.myo.mjx.fast_sac.env import VectorEnv, observation
 from myosuite.envs.myo.mjx.fast_sac.learner import FastSAC, Normalizer
 from myosuite.envs.myo.mjx.fast_sac.networks import deterministic_action, sample_action
 from myosuite.envs.myo.mjx.manipulation_config import CPU_ALIASES
+from myosuite.envs.myo.mjx.comparison_logging import (
+    comparison_metrics,
+    configure_wandb_metrics,
+)
 
 UPSTREAM_COMMIT = "bccd4d7451640a2800ddc77e469d911a84f91994"
 
@@ -111,6 +115,7 @@ def _train(config, versions, device):
             "solved_frac",
             "solved_per_step",
             "success",
+            "numerical_failure",
         )
     }
 
@@ -190,6 +195,7 @@ def _train(config, versions, device):
             config=metadata,
             dir=str(log_dir),
         )
+        configure_wandb_metrics(run)
     started = time.monotonic()
     last_log_time = started
     last_log_step = 0
@@ -204,6 +210,7 @@ def _train(config, versions, device):
                 initial["eval/walltime"] = time.monotonic() - eval_started
                 initial["training/env_steps"] = 0
                 initial["experiment/walltime"] = time.monotonic() - experiment_started
+                initial = comparison_metrics(initial, 0)
                 if not all(math.isfinite(value) for value in initial.values()):
                     raise FloatingPointError("Non-finite initial evaluation metrics")
                 log_file.write(json.dumps(initial) + "\n")
@@ -288,6 +295,7 @@ def _train(config, versions, device):
                     metrics["experiment/walltime"] = (
                         time.monotonic() - experiment_started
                     )
+                    metrics = comparison_metrics(metrics, num_steps)
                     if not all(math.isfinite(value) for value in metrics.values()):
                         raise FloatingPointError(
                             "Non-finite training/evaluation metrics; inspect simulator state and learning configuration."
@@ -301,6 +309,8 @@ def _train(config, versions, device):
                         "training/critic_loss",
                         "eval/episode_reward",
                         "eval/episode_success",
+                        "eval/episode_numerical_failure",
+                        "training/episode_numerical_failure",
                     ):
                         if key in metrics:
                             summary += f" {key}={metrics[key]:.4f}"

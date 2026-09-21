@@ -403,6 +403,9 @@ def train(
     )
 
     metrics['buffer_current_size'] = replay_buffer.size(buffer_state)  # pytype: disable=unsupported-operands  # lax-types
+    metrics['numerical_failure_per_step'] = jnp.mean(
+        env_state.metrics.get('numerical_failure', jnp.zeros_like(env_state.done))
+    )
     return training_state, env_state, buffer_state, metrics
 
   def prefill_replay_buffer(
@@ -461,7 +464,7 @@ def train(
     totals = {
         name: jnp.zeros((), dtype=jnp.float32)
         for name in ('critic_loss', 'actor_loss', 'alpha_loss', 'alpha',
-                     'buffer_current_size')
+                     'buffer_current_size', 'numerical_failure_per_step')
     }
     training_state, env_state, buffer_state, key, totals = jax.lax.fori_loop(
         0, num_steps, f,

@@ -36,9 +36,20 @@ source /home/lsy/pycode/myosuite/.venv/bin/activate
 
 ## 三张 RTX 2080 Ti：SAC / FastSAC 对比队列
 
-这一组固定 **8 个任务 × 2 种算法 × seed 42 = 16 次训练**，每卡一个进程，
-每个脚本逐条执行 Python 命令，没有任务循环。转笔只作为命名示例，未加入这
-16 次运行。脚本结束一条才执行下一条，任何一条报错会停止该卡队列。
+当前只跑 **5 个任务 × 2 种算法 × seed 42 = 10 次训练**，每卡一个进程，
+每个脚本逐条执行 Python 命令，没有任务循环。脚本结束一条才执行下一条，
+任何一条报错会停止该卡队列。其余任务仅保留在本文档，不进入当前队列。
+
+| 当前任务 | 环境实现 | episode 最大控制步数 |
+| --- | --- | ---: |
+| `MjxHandKeyTurnRandom-v0` | `playground_key_turn_v0.py` | 200 |
+| `MjxHandReorient100-v0` | `playground_reorient_sar_v0.py` | 50 |
+| `MjxHandPenTwirlRandom-v0` | `playground_pen_v0.py` | 50 |
+| `MjxFingerPoseRandom-v0` | `playground_pose_v0.py` | 100 |
+| `MjxHandReachRandom-v0` | `playground_reach_v0.py` | 100 |
+
+Pose 本轮选择手指随机姿态；同一个实现文件中的肘部姿态任务不加入本轮。
+Pen/Pose/Reach 的 Brax 包装器使用完整 reset，保持新一局的目标、观测和物理状态一致。
 
 ### 统一预算与显存配置
 
@@ -58,7 +69,7 @@ source /home/lsy/pycode/myosuite/.venv/bin/activate
 
 **1 亿步是所有环境累计的 transition，不是每个环境 1 亿步，也不是物理子步。**
 64 个环境对应约 1,562,500 次采样。它是统一的长训练预算，远大于过去的 1.5M/3M；
-并行不会让相同的 timestep 变成更多样本。16 组总预算为 16 亿 transition。
+并行不会让相同的 timestep 变成更多样本。10 组总预算约为 10 亿 transition。
 保留 step 0 和大约每 5M 步的评估，可查看 5M、10M、20M 等阶段的学习曲线。
 Brax 按完整评估区间向上取整，在本配置下实际结束于 100,000,512 步；
 FastSAC 结束于 100,000,000 步，这个微小差异应按日志中的实际步数比较。
@@ -104,13 +115,13 @@ FastSAC 还在每次采样和 learner 更新后调用 `jax.block_until_ready`，
 
 Brax SAC 的评估环境单独创建，按评估环境数分配 Warp 缓冲。
 另加第一局指标筛选：已结束环境之后产生的 NaN/Inf 不再经由 `0 × NaN`
-污染第一局统计；活跃 episode 内的非有限值仍会报错并保存
-`nonfinite_metrics.json`，没有用零替换真实的首局异常。
-DieP2 附件已确认异常指标为位置距离奖励及总奖励；这项屏蔽修复不等于已经
-验证其物理稳定性，若首局仍非有限，需要继续定位仿真状态。
+污染第一局统计。八个 manipulation 环境另有下文的 NaN/Inf 隔离与异常终止；
+未被环境隔离处理的非有限指标仍会报错并保存 `nonfinite_metrics.json`。
+这些处理不等于已经验证物理稳定性，应同时查看数值异常比例。
 
 两者同一任务使用相同的 learner 奖励缩放：KeyTurn、Reorient（含 Die）为
-0.01，Baoding 为 1.0；记录的 episode reward 保持原始尺度。
+0.01，PenTwirl 也为 0.01，Pose、Reach、Baoding 为 1.0；
+记录的 episode reward 保持原始尺度。
 FastSAC 的回报分布范围仍为 [-20,20]，需关注 `training/support_clip_fraction`。
 网络结构、Q 表示、优化器、熵目标、tau 和延迟更新保留各算法现有配置，
 因此这是**两套训练方法在相同样本预算下的比较，不是仅改变一项的消融实验**。
@@ -122,11 +133,11 @@ FastSAC 的更新计算量更大；两者均记录 `experiment/walltime`（秒�
 
 | GPU | 脚本 | 依次运行 |
 | --- | --- | --- |
-| 0 | [train_sac_comparison_2080ti_gpu0.sh](train_sac_comparison_2080ti_gpu0.sh) | KeyTurnFixed SAC → FastSAC；KeyTurnRandom SAC；DieP1 SAC；BaodingP2 SAC → FastSAC |
-| 1 | [train_sac_comparison_2080ti_gpu1.sh](train_sac_comparison_2080ti_gpu1.sh) | KeyTurnRandom FastSAC；Reorient8 SAC → FastSAC；BaodingP1 SAC → FastSAC |
-| 2 | [train_sac_comparison_2080ti_gpu2.sh](train_sac_comparison_2080ti_gpu2.sh) | DieP2 SAC → FastSAC；Reorient100 SAC → FastSAC；DieP1 FastSAC |
+| 0 | [train_sac_comparison_2080ti_gpu0.sh](train_sac_comparison_2080ti_gpu0.sh) | KeyTurnRandom SAC → FastSAC；FingerPoseRandom SAC → FastSAC |
+| 1 | [train_sac_comparison_2080ti_gpu1.sh](train_sac_comparison_2080ti_gpu1.sh) | Reorient100 SAC → FastSAC；HandReachRandom SAC |
+| 2 | [train_sac_comparison_2080ti_gpu2.sh](train_sac_comparison_2080ti_gpu2.sh) | PenTwirlRandom SAC → FastSAC；HandReachRandom FastSAC |
 
-分配为 6 / 5 / 5 次，其中 FastSAC 为 2 / 3 / 3 次；每张卡都混合两种算法。
+分配为 4 / 3 / 3 次，其中 FastSAC 为 2 / 1 / 2 次；每张卡都混合两种算法。
 这是按更新计算量做的初步均衡，没有各任务实测耗时，不能保证同时结束。
 在老服务器把整个仓库和可用的依赖环境准备好，W&B 已登录后，分别在三个
 终端或 tmux 窗口运行（下面是三条独立启动命令）：
@@ -142,12 +153,53 @@ bash myosuite/envs/myo/mjx/train_sac_comparison_2080ti_gpu2.sh
 两个入口的 W&B project 均为 **myosuite**，run name 示例：
 
 ```text
-MjxHandKeyTurnFixed-v0-sac-0424-1837
-MjxHandKeyTurnFixed-v0-fastsac-0424-1837
+MjxHandKeyTurnRandom-v0-sac-0424-1837
+MjxHandKeyTurnRandom-v0-fastsac-0424-1837
 ```
 
 时间为运行机器的本地时间。两者的本地保存目录附加更精细的时间后缀，
 避免同一分钟重启时覆盖旧结果。此处只准备脚本，不自动启动训练。
+
+### W&B：统一的奖励与成功率面板
+
+两种算法均在独立的 **`metrics`** 分组上传以下指标，横轴统一为 `env_steps`：
+这套成功统计适用于所有受支持任务，包括暂不排期的任务，不只当前五个。
+
+| 指标 | 两种算法共同的含义 |
+| --- | --- |
+| `metrics/reward` | 评估 episode 原始累计奖励的均值，不含 learner 奖励缩放 |
+| `metrics/success_rate` | 评估 episode 中至少成功过一次的比例，范围 0～1 |
+| `metrics/solved_step_fraction` | 每局成功时刻数 / 实际局长，再对各局求均值 |
+| `metrics/numerical_failure_rate` | 数值异常终止的 episode 比例；环境提供该诊断时记录 |
+
+保留原有 `eval/*`、`training/*` 诊断指标。`metrics/*` 只在实际评估后上传，
+不会将旧评估结果重复填入每 100 次采样的训练日志。Pen/Pose/Reach 的
+`solved_frac` 不能直接当作“本局曾成功率”；Brax 已补齐与 FastSAC 相同的首次成功统计。
+例如一局共 100 步、其中 5 步成功：该局成功时刻占比为 0.05，本局成功标记为 1。
+`success_rate` 再对本次评估的所有局取平均，两项均以 0～1 的比例上传。
+
+### 其他任务：保留支持，暂不纳入排期
+
+下列环境均可使用 `train_jax_sac.py` 或 `train_jax_fastsac.py`，但三个脚本不会运行它们：
+
+| 类别 | 其他环境 ID |
+| --- | --- |
+| KeyTurn | `MjxHandKeyTurnFixed-v0` |
+| SAR Reorient | `MjxHandReorient8-v0` |
+| Die Reorient | `MjxChallengeDieReorientP1-v0`、`MjxChallengeDieReorientP2-v0` |
+| Baoding | `MjxChallengeBaodingP1-v1`、`MjxChallengeBaodingP2-v1` |
+| PenTwirl | `MjxHandPenTwirlFixed-v0` |
+| Pose | `MjxFingerPoseFixed-v0`、`MjxElbowPoseFixed-v0`、`MjxElbowPoseRandom-v0` |
+| Reach | `MjxHandReachFixed-v0`、`MjxHandReachRandomCustom-v0` |
+
+例如手动运行肘部随机姿态（不在本轮队列）：
+
+```bash
+python train_jax_sac.py --env_name=MjxElbowPoseRandom-v0 --impl=warp --num_envs=64 --seed=42 --log_to_wandb --wandb_project=myosuite
+python train_jax_fastsac.py --env_name=MjxElbowPoseRandom-v0 --impl=warp --num_envs=64 --seed=42 --log_to_wandb --wandb_project=myosuite
+```
+
+下面原有八个 manipulation 任务的命令继续保留作参考，**不是当前排期清单**。
 
 ## PPO：八个任务的命令
 
@@ -200,6 +252,26 @@ alpha 和 SPS。`training/vector_steps`、`training/gradient_steps` 分别记录
 评估次数、checkpoint 时机和总训练步数保持原配置；不需要修改或重新安装 Brax。
 首次编译期间仍可能暂时没有新日志。正在运行的 Python 进程不会自动加载此修改，
 新日志频率从下一次启动训练时生效。
+
+### 环境 NaN / Inf 处理
+
+八个手部 manipulation 环境在 reset/step 输出处使用 `nan_to_num`，
+显式将 NaN、正负 Inf 替换为 0（不用默认的浮点最大值）。
+若观测、奖励、指标或物理状态 `qpos/qvel/qacc/act` 出现非有限值，
+该步的观测、奖励和原任务指标全部清零，设 `done=1`，由训练包装器完整重置。
+正常步保持不变；该处理同时用于 SAC 和 FastSAC，避免异常输出进入观测统计与 replay。
+直接调用环境、未使用训练包装器时，调用者必须在 `done` 后 reset。
+
+W&B 的 `eval/episode_numerical_failure` 表示评估 episode 因数值异常终止的比例。
+Brax SAC 另记录 `training/numerical_failure_per_step`（日志窗口内异常环境步比例）；
+FastSAC 记录 `training/episode_numerical_failure`（窗口内已结束 episode 的异常比例）。
+Brax 评估还记录 `nonfinite_observation/physics/reward` 的 episode 指标以区分异常来源。
+异常步不记成功，但异常发生前已经记录的成功仍按“本局曾成功”定义保留。
+
+这是异常隔离措施，尚未通过 GPU 运行确认 Reorient100/DieReorientP2 的根因已解决。
+异常终止会改变 episode 长度和回报，比较算法时应同时查看异常比例；频繁出现时
+仍需排查物理稳定性。它也不能修复已有 NaN 的网络参数、有限但过大的观测，
+或梯度更新自身产生的 NaN；训练 loss 的非有限值检查仍保留。请从新 run 启动。
 
 PPO/SAC 均写入 W&B **`myosuite` project**；不传 `--log_to_wandb` 则关闭。
 SAC 名称为 `环境名-sac-MMDD-HHMM`；PPO 的命名维持原样。

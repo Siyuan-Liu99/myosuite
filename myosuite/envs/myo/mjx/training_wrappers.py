@@ -18,7 +18,17 @@ class FlatStateObservationWrapper(wrapper.Wrapper):
 
     def reset(self, rng):
         state = self.env.reset(rng)
-        return state.replace(obs=state.obs["state"])
+        # Declare these before Brax EpisodeWrapper constructs episode_metrics.
+        # Adding new keys only outside that wrapper would break its step loop
+        # for legacy Pen/Pose/Reach tasks.
+        return state.replace(
+            obs=state.obs["state"],
+            metrics={
+                **state.metrics,
+                "success": jp.zeros_like(state.done),
+                "solved_per_step": jp.zeros_like(state.done),
+            },
+        )
 
     def step(self, state, action):
         state = self.env.step(state.replace(obs={"state": state.obs}), action)
@@ -35,21 +45,42 @@ class FirstEpisodeMetricsWrapper(wrapper.Wrapper):
     """
 
     _active_key = "_myosuite_eval_active"
+    _success_key = "_myosuite_eval_success_seen"
 
     def reset(self, rng):
         state = self.env.reset(rng)
         return state.replace(
-            info={**state.info, self._active_key: jp.ones_like(state.done, dtype=bool)}
+            info={
+                **state.info,
+                self._active_key: jp.ones_like(state.done, dtype=bool),
+                self._success_key: jp.zeros_like(state.done, dtype=bool),
+            },
+            metrics={
+                **state.metrics,
+                "success": jp.zeros_like(state.done),
+                "solved_per_step": jp.zeros_like(state.done),
+            },
         )
 
     def step(self, state, action):
         active = state.info[self._active_key]
+        success_seen = state.info[self._success_key]
         # Do not expose our bookkeeping to the inner full-reset wrapper: its
         # candidate reset state has a different info structure otherwise.
         info = {
-            key: value for key, value in state.info.items() if key != self._active_key
+            key: value
+            for key, value in state.info.items()
+            if key not in (self._active_key, self._success_key)
         }
         stepped = self.env.step(state.replace(info=info), action)
+        # Legacy Pen/Pose/Reach only expose solved_frac. Emit one pulse per
+        # successful episode so Brax and FastSAC share the same success meaning.
+        solved = stepped.metrics["solved_frac"] > 0
+        metrics = {
+            **stepped.metrics,
+            "success": (solved & ~success_seen).astype(jp.float32),
+            "solved_per_step": solved.astype(jp.float32),
+        }
 
         def first_episode(value):
             mask = active.reshape(active.shape + (1,) * (value.ndim - active.ndim))
@@ -57,10 +88,11 @@ class FirstEpisodeMetricsWrapper(wrapper.Wrapper):
 
         return stepped.replace(
             reward=first_episode(stepped.reward),
-            metrics=jax.tree.map(first_episode, stepped.metrics),
+            metrics=jax.tree.map(first_episode, metrics),
             info={
                 **stepped.info,
                 self._active_key: active & ~stepped.done.astype(bool),
+                self._success_key: success_seen | (active & solved),
             },
         )
 

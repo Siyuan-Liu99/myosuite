@@ -9,6 +9,7 @@ from myosuite.envs.myo.mjx.mjx_base_env import MjxMyoBase
 
 
 class MjxPenTwirlEnvV0(MjxMyoBase):
+    requires_full_reset = True
     def __init__(
         self,
         config: config_dict.ConfigDict,

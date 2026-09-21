@@ -135,3 +135,5 @@ logs/
 **/wandb/
 *params.pickle
 *tmp*.xml
+
+myosuite/envs/myo/mjx/runs
