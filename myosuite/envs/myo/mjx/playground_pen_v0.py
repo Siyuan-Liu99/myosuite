@@ -6,6 +6,7 @@ import mujoco
 from mujoco import mjx
 from mujoco_playground import State
 from myosuite.envs.myo.mjx.mjx_base_env import MjxMyoBase
+from myosuite.envs.myo.mjx.numerical_safety import sanitize_state
 
 
 class MjxPenTwirlEnvV0(MjxMyoBase):
@@ -113,7 +114,8 @@ class MjxPenTwirlEnvV0(MjxMyoBase):
             "step_count": jp.array(0, dtype=jp.int32),
         }
 
-        data = self._get_data(qpos, qvel)
+        # Populate site/body positions before forming the first observation.
+        data = mjx.forward(self.mjx_model, self._get_data(qpos, qvel))
         obs = self._get_obs(data, info)
 
         reward, done, zero = jp.zeros(3)
@@ -125,7 +127,7 @@ class MjxPenTwirlEnvV0(MjxMyoBase):
             "bonus_reward": zero,
             "solved_frac": zero,
         }
-        return State(data, obs, reward, done, metrics, info)
+        return sanitize_state(State(data, obs, reward, done, metrics, info))
 
     def _get_rewards(self, data: mjx.Data, info: Dict[str, jp.ndarray]) -> Dict[str, jp.ndarray]:
         terms = self._pen_terms(data, info)

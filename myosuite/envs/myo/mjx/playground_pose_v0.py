@@ -4,6 +4,7 @@ import jax.numpy as jp
 from mujoco import mjx
 from mujoco_playground import State
 from myosuite.envs.myo.mjx.mjx_base_env import MjxMyoBase
+from myosuite.envs.myo.mjx.numerical_safety import sanitize_state
 
 
 class MjxPoseEnvV0(MjxMyoBase):
@@ -37,7 +38,7 @@ class MjxPoseEnvV0(MjxMyoBase):
             "step_count": jp.array(0, dtype=jp.int32),
         }
 
-        data = self._get_data(qpos, qvel)
+        data = mjx.forward(self.mjx_model, self._get_data(qpos, qvel))
         obs = self._get_obs(data, info)
         
         reward, done, zero = jp.zeros(3)
@@ -48,7 +49,7 @@ class MjxPoseEnvV0(MjxMyoBase):
             "penalty_reward": zero,
             "solved_frac": zero,
         }
-        return State(data, obs, reward, done, metrics, info)
+        return sanitize_state(State(data, obs, reward, done, metrics, info))
 
     def _pose_dist(self, data, info):
         # TODO: confirm this gets Common Subexpression Eliminated

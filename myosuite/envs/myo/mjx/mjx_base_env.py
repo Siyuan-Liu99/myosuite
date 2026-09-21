@@ -15,6 +15,7 @@ from mujoco_playground import State
 from mujoco_playground._src import mjx_env  # Several helper functions are only visible under _src
 from abc import ABC, abstractmethod
 import numpy as np
+from myosuite.envs.myo.mjx.numerical_safety import sanitize_state
 
 
 class MjxMyoBase(mjx_env.MjxEnv, ABC):
@@ -82,6 +83,8 @@ class MjxMyoBase(mjx_env.MjxEnv, ABC):
         state = state.replace(done=self._get_done(state))
         state = state.replace(
             metrics={**state.metrics, **self._get_metrics(state)})  # Other metrics get added by learning
+        # End invalid legacy Pen/Pose/Reach transitions before task reset logic.
+        state = sanitize_state(state)
         state = state.replace(info=self._get_info(state))
         return state
 

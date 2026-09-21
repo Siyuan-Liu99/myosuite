@@ -255,11 +255,15 @@ alpha 和 SPS。`training/vector_steps`、`training/gradient_steps` 分别记录
 
 ### 环境 NaN / Inf 处理
 
-八个手部 manipulation 环境在 reset/step 输出处使用 `nan_to_num`，
+八个手部 manipulation 环境以及 PenTwirl、Pose、Reach（含 Custom Reach）
+均在 reset/step 输出处使用 `nan_to_num`，
 显式将 NaN、正负 Inf 替换为 0（不用默认的浮点最大值）。
 若观测、奖励、指标或物理状态 `qpos/qvel/qacc/act` 出现非有限值，
 该步的观测、奖励和原任务指标全部清零，设 `done=1`，由训练包装器完整重置。
 正常步保持不变；该处理同时用于 SAC 和 FastSAC，避免异常输出进入观测统计与 replay。
+Pen/Pose/Reach 的 reset 也先调用 `mjx.forward`，计算物体、指尖位置等派生量，
+再构造初始观测。此前只有八个 manipulation 环境接入了异常隔离；旧版转笔训练
+仍可能将异常仿真输出写入 replay。同步此修复后需启动新进程，旧 replay/模型不会自动修复。
 直接调用环境、未使用训练包装器时，调用者必须在 `done` 后 reset。
 
 W&B 的 `eval/episode_numerical_failure` 表示评估 episode 因数值异常终止的比例。

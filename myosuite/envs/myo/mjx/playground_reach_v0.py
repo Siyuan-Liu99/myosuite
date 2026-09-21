@@ -6,6 +6,7 @@ import mujoco
 from mujoco import mjx
 from mujoco_playground import State
 from myosuite.envs.myo.mjx.mjx_base_env import MjxMyoBase
+from myosuite.envs.myo.mjx.numerical_safety import sanitize_state
 
 
 class MjxReachEnvV0(MjxMyoBase):
@@ -56,7 +57,8 @@ class MjxReachEnvV0(MjxMyoBase):
                 'targets': targets,
                 'step_count': jp.array(0, dtype=jp.int32)}
 
-        data = self._get_data(qpos, qvel)
+        # make_data alone leaves fingertip site positions uncomputed.
+        data = mjx.forward(self.mjx_model, self._get_data(qpos, qvel))
         obs = self._get_obs(data, info)
         
         reward, done, zero = jp.zeros(3)
@@ -66,7 +68,7 @@ class MjxReachEnvV0(MjxMyoBase):
             "penalty_reward": zero,
             "solved_frac": zero,
         }
-        return State(data, obs, reward, done, metrics, info)
+        return sanitize_state(State(data, obs, reward, done, metrics, info))
 
     def _get_rewards(self, data, info):
         reach_err = self._reach_err(data, info)
