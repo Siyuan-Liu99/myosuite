@@ -44,6 +44,7 @@ import flax
 import jax
 import jax.numpy as jnp
 import optax
+from myosuite.envs.myo.mjx.training_wrappers import TRAINING_EPISODE_STATS
 
 Metrics = types.Metrics
 Transition = types.Transition
@@ -478,6 +479,28 @@ def train(
       in_axes=(0, 0, 0, 0, None)
   )
 
+  @functools.partial(jax.pmap, axis_name=_PMAP_AXIS_NAME)
+  def sum_episode_totals(totals):
+    return jax.tree.map(lambda x: jax.lax.psum(x, _PMAP_AXIS_NAME), totals)
+
+  def completed_episode_metrics(env_state):
+    if TRAINING_EPISODE_STATS not in env_state.info:
+      return env_state, {}
+    stats = env_state.info[TRAINING_EPISODE_STATS]
+    totals = jax.device_get(_unpmap(sum_episode_totals(stats['totals'])))
+    count = int(totals['count'])
+    metrics = {'training/episodes_in_window': count}
+    if count:
+      metrics.update({
+          f'training/episode_{key}': float(value) / count
+          for key, value in totals.items() if key != 'count'
+      })
+    stats = {**stats, 'totals': jax.tree.map(jnp.zeros_like, stats['totals'])}
+    env_state = env_state.replace(info={
+        **env_state.info, TRAINING_EPISODE_STATS: stats,
+    })
+    return env_state, metrics
+
   # Note that this is NOT a pure jittable method.
   def training_epoch_with_timing(
       training_state: TrainingState,
@@ -508,6 +531,8 @@ def train(
         'training/warmup': 0,
         **{f'training/{name}': value for name, value in metrics.items()},
     }
+    env_state, episode_metrics = completed_episode_metrics(env_state)
+    metrics.update(episode_metrics)
     return training_state, env_state, buffer_state, key, metrics
 
   global_key, local_key = jax.random.split(rng)
@@ -595,8 +620,10 @@ def train(
     elapsed = time.time() - t
     training_walltime += elapsed
     completed_vector_steps += chunk_size
+    env_state, episode_metrics = completed_episode_metrics(env_state)
     if process_id == 0:
       progress_fn(int(_unpmap(training_state.env_steps)), {
+          **episode_metrics,
           'training/vector_steps': completed_vector_steps,
           'training/gradient_steps': int(_unpmap(training_state.gradient_steps)),
           'training/warmup': 1,

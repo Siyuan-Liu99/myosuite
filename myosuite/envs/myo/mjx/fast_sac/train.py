@@ -73,6 +73,7 @@ def _train(config, versions, device):
     metadata = {
         "format_version": 1,
         "algorithm": "fastsac_jax",
+        "metrics_source": "completed_training_episodes",
         "holosoma_commit": UPSTREAM_COMMIT,
         "env_name": config.env_name,
         "obs_size": obs_size,

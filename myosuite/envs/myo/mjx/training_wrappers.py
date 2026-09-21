@@ -4,6 +4,75 @@ import jax
 import jax.numpy as jp
 from mujoco_playground import wrapper
 
+TRAINING_EPISODE_STATS = "_myosuite_training_episodes"
+
+
+class TrainingEpisodeMetricsWrapper(wrapper.Wrapper):
+    """Completed-episode statistics outside the batched auto-reset wrapper.
+
+    Keep unfinished episodes across reporting boundaries. Only window totals
+    are cleared by the trainer after logging; do not retain a lifetime float32
+    reward sum and subtract it, which loses precision during long runs.
+    """
+
+    def __init__(self, env, episode_length):
+        super().__init__(env)
+        self._horizon = episode_length
+
+    def reset(self, rng):
+        state = self.env.reset(rng)
+        zero = jp.zeros_like(state.reward)
+        stats = {
+            "returns": zero,
+            "lengths": zero,
+            "solved_steps": zero,
+            "totals": {
+                name: jp.array(0.0)
+                for name in (
+                    "count",
+                    "reward",
+                    "length",
+                    "solved_frac",
+                    "solved_per_step",
+                    "success",
+                    "numerical_failure",
+                )
+            },
+        }
+        return state.replace(info={**state.info, TRAINING_EPISODE_STATS: stats})
+
+    def step(self, state, action):
+        stats = state.info[TRAINING_EPISODE_STATS]
+        # Full reset candidates do not contain this outer wrapper's info.
+        info = {k: v for k, v in state.info.items() if k != TRAINING_EPISODE_STATS}
+        stepped = self.env.step(state.replace(info=info), action)
+        ended = stepped.done.astype(bool)
+        returns = stats["returns"] + stepped.reward
+        lengths = stats["lengths"] + 1
+        solved_steps = stats["solved_steps"] + (stepped.metrics["solved_frac"] > 0)
+        episode = {
+            "count": jp.sum(ended).astype(jp.float32),
+            "reward": jp.sum(jp.where(ended, returns, 0.0)),
+            "length": jp.sum(jp.where(ended, lengths, 0.0)),
+            "solved_frac": jp.sum(jp.where(ended, solved_steps / self._horizon, 0.0)),
+            "solved_per_step": jp.sum(jp.where(ended, solved_steps / lengths, 0.0)),
+            "success": jp.sum(ended & (solved_steps > 0)).astype(jp.float32),
+            "numerical_failure": jp.sum(
+                jp.where(
+                    ended,
+                    stepped.metrics.get("numerical_failure", jp.zeros_like(returns)),
+                    0.0,
+                )
+            ),
+        }
+        stats = {
+            "returns": jp.where(ended, 0.0, returns),
+            "lengths": jp.where(ended, 0.0, lengths),
+            "solved_steps": jp.where(ended, 0.0, solved_steps),
+            "totals": jax.tree.map(lambda x, y: x + y, stats["totals"], episode),
+        }
+        return stepped.replace(info={**stepped.info, TRAINING_EPISODE_STATS: stats})
+
 
 class FlatStateObservationWrapper(wrapper.Wrapper):
     """Brax SAC consumes an array; our environments expose {"state": array}."""
@@ -104,4 +173,6 @@ def wrap_for_training(env, **kwargs):
     wrapped = wrapper.wrap_for_brax_training(env, **kwargs)
     if getattr(env, "_evaluation_only", False):
         wrapped = FirstEpisodeMetricsWrapper(wrapped)
+    elif isinstance(env, FlatStateObservationWrapper):
+        wrapped = TrainingEpisodeMetricsWrapper(wrapped, kwargs["episode_length"])
     return wrapped

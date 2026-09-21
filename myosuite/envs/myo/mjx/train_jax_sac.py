@@ -212,6 +212,7 @@ def main(
     )
     metadata = {
         "algorithm": "sac",
+        "metrics_source": "completed_training_episodes",
         "env_name": env_name,
         "impl": impl,
         "num_envs": num_envs,
@@ -264,6 +265,9 @@ def main(
                 for name in ("critic_loss", "actor_loss", "alpha", "sps"):
                     if f"training/{name}" in values:
                         details.append(f"{name}={values[f'training/{name}']:.3f}")
+                for name in ("reward", "success_rate", "solved_step_fraction"):
+                    if f"metrics/{name}" in values:
+                        details.append(f"{name}={values[f'metrics/{name}']:.4f}")
                 for key in (
                     "eval/episode_numerical_failure",
                     "training/numerical_failure_per_step",

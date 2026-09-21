@@ -162,21 +162,34 @@ MjxHandKeyTurnRandom-v0-fastsac-0424-1837
 
 ### W&B：统一的奖励与成功率面板
 
-两种算法均在独立的 **`metrics`** 分组上传以下指标，横轴统一为 `env_steps`：
+两种算法均在独立的 **`metrics`** 分组上传训练过程的标量历史曲线，横轴统一为
+`env_steps`。每 100 次并行采样（当前为 6,400 个环境步）统计本窗口内已完成的
+episode；尚未结束的局跨日志窗口继续累计，结束后才计入。窗口内没有完成的局时
+不伪造奖励或成功率数据点。预热期间也统计，评估和预热边界可能额外输出一次。
 这套成功统计适用于所有受支持任务，包括暂不排期的任务，不只当前五个。
 
 | 指标 | 两种算法共同的含义 |
 | --- | --- |
-| `metrics/reward` | 评估 episode 原始累计奖励的均值，不含 learner 奖励缩放 |
-| `metrics/success_rate` | 评估 episode 中至少成功过一次的比例，范围 0～1 |
+| `metrics/reward` | 本日志窗口内已完成训练 episode 的原始累计奖励均值，不含 learner 奖励缩放 |
+| `metrics/success_rate` | 本窗口内已完成训练 episode 中至少成功过一次的比例，范围 0～1 |
 | `metrics/solved_step_fraction` | 每局成功时刻数 / 实际局长，再对各局求均值 |
 | `metrics/numerical_failure_rate` | 数值异常终止的 episode 比例；环境提供该诊断时记录 |
 
-保留原有 `eval/*`、`training/*` 诊断指标。`metrics/*` 只在实际评估后上传，
-不会将旧评估结果重复填入每 100 次采样的训练日志。Pen/Pose/Reach 的
+保留原有 `eval/*`、`training/*` 诊断指标。确定性策略评估另上传到
+`eval_metrics/reward`、`eval_metrics/success_rate`、`eval_metrics/solved_step_fraction`
+及 `eval_metrics/numerical_failure_rate`，仍保持原评估频率。训练和评估数据不混线，
+不重复填入旧评估值。配置记录 `metrics_source=completed_training_episodes`，
+区别于旧版仅将评估结果映射到 `metrics/*` 的 run。Pen/Pose/Reach 的
 `solved_frac` 不能直接当作“本局曾成功率”；Brax 已补齐与 FastSAC 相同的首次成功统计。
 例如一局共 100 步、其中 5 步成功：该局成功时刻占比为 0.05，本局成功标记为 1。
-`success_rate` 再对本次评估的所有局取平均，两项均以 0～1 的比例上传。
+`success_rate` 再对本窗口已完成的所有局取平均，两项均以 0～1 的比例上传。
+
+上传方式与原 Pen/Pose/Reach 的训练入口一样，使用 `run.log(标量字典, step=环境步数)`
+逐点追加 history；显式指定横轴，并关闭这两组指标的 summary 聚合，避免将最终值
+当作训练曲线。新 run 在完成几个 episode 后应有多个训练数据点。
+若已有 workspace 保存了条形图面板，需要在 W&B 将该面板改为 **Line plot**，
+X 选 `env_steps`，Y 选对应 `metrics/*`；代码的指标定义不会重写已保存的面板配置。
+旧 run 如果只上传过 step 0，无法凭空补出后续曲线；正在运行的进程也不会热加载代码。
 
 ### 其他任务：保留支持，暂不纳入排期
 
