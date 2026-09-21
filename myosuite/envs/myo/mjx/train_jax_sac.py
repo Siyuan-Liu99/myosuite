@@ -52,6 +52,7 @@ def parser():
         help="Evaluations including step zero when >=2",
     )
     add("num_eval_envs", type=int, default=64)
+    add("log_interval", type=int, default=100, help="Logging interval in vector steps")
     add("deterministic_eval", action=argparse.BooleanOptionalAction, default=True)
     add(
         "reward_scaling",
@@ -81,6 +82,7 @@ def validate(p, args):
         "grad_updates_per_step",
         "num_evals",
         "num_eval_envs",
+        "log_interval",
     ):
         if getattr(args, name) < 1:
             p.error(f"--{name} must be positive")
@@ -163,7 +165,7 @@ def main(
     os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
     sys.path.insert(0, str(Path(__file__).resolve().parents[4]))
     import jax
-    from brax.training.agents.sac import train as sac
+    from myosuite.envs.myo.mjx import brax_sac_train as sac
     from myosuite.envs.myo.mjx import make
     from myosuite.envs.myo.mjx.manipulation_config import CPU_ALIASES
     from myosuite.envs.myo.mjx.rl_cfg import sac_config
@@ -184,6 +186,13 @@ def main(
         raise RuntimeError("--impl=warp requires a GPU JAX backend")
     env, sac_params, network_factory = load_env_and_network_factory(
         env_name, impl, num_envs, **overrides
+    )
+    sac_params.setdefault("log_interval", 100)
+    print(
+        f"Training logs: every {sac_params['log_interval']} vector steps "
+        f"({sac_params['log_interval'] * num_envs * sac_params['action_repeat']:,} "
+        f"environment steps); evaluations: {sac_params['num_evals']} total.",
+        flush=True,
     )
     # Give evaluation its own correctly sized Warp buffers and mark it for
     # first-episode metric masking, without changing the training environment.
@@ -238,10 +247,15 @@ def main(
                 check_finite_metrics(values, num_steps, run_dir)
                 log_file.write(json.dumps(values) + "\n")
                 log_file.flush()
-                print(
-                    f"Step {num_steps:,}: reward={values['eval/episode_reward']:.3f}",
-                    flush=True,
-                )
+                details = []
+                if "eval/episode_reward" in values:
+                    details.append(f"reward={values['eval/episode_reward']:.3f}")
+                if values.get("training/warmup"):
+                    details.append("replay warmup")
+                for name in ("critic_loss", "actor_loss", "alpha", "sps"):
+                    if f"training/{name}" in values:
+                        details.append(f"{name}={values[f'training/{name}']:.3f}")
+                print(f"Step {num_steps:,}: {', '.join(details)}", flush=True)
                 if run is not None:
                     run.log(values, step=int(num_steps))
 

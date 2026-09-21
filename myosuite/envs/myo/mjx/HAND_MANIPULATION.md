@@ -184,6 +184,23 @@ PPO 仍为 10M 步、16 次评估；SAC 为 100M 步、21 次评估（含 step 0
 SAC 每次 64 个 episode（PPO 仍为 128）。SAC 默认为确定性策略评估，seed 42。
 SAC 资源参数可以在命令行覆盖，`python train_jax_sac.py --help` 不初始化 GPU。
 
+SAC 和 FastSAC 默认均为 `--log_interval=100`：每 100 次并行采样输出终端日志、
+写入 `metrics.jsonl`，并在启用 W&B 时上传。当前 64 个环境、action repeat 为 1，
+即每 **6,400 个环境步**一次；评估完成时也会记录，SAC 预填充结束时额外记录一次。
+预填充期间显示 `replay warmup`、步数和 SPS；开始更新后显示 critic/actor loss、
+alpha 和 SPS。`training/vector_steps`、`training/gradient_steps` 分别记录采样次数
+和梯度更新次数。训练 loss 是本次分段内更新的均值。
+`eval/episode_reward`、成功率等评估指标仍仅在原来的 21 次评估时更新
+（约每 500 万环境步一次），不会每 6,400 步重新评估。
+
+为了将训练日志与评估频率分开，SAC 入口使用本目录的 `brax_sac_train.py`：
+基于 Brax 0.14.1 的 Apache-2.0 训练循环，保留原作者版权与许可说明。
+仅将预填充和训练循环分段回传进度；分段之间保留环境、replay、优化器和随机数状态，
+网络、损失和更新规则仍使用 Brax。分段长度是动态参数，避免为不同长度重复编译。
+评估次数、checkpoint 时机和总训练步数保持原配置；不需要修改或重新安装 Brax。
+首次编译期间仍可能暂时没有新日志。正在运行的 Python 进程不会自动加载此修改，
+新日志频率从下一次启动训练时生效。
+
 PPO/SAC 均写入 W&B **`myosuite` project**；不传 `--log_to_wandb` 则关闭。
 SAC 名称为 `环境名-sac-MMDD-HHMM`；PPO 的命名维持原样。
 SAC 本地保存到 `runs/sac/<run名>-<唯一时间后缀>/`，包含配置、指标 JSONL、
