@@ -100,6 +100,33 @@ def validate(p, args):
         p.error("reward_scaling must be finite and positive")
 
 
+def check_finite_metrics(values, num_steps, run_dir):
+    """Preserve the actual failed metrics before stopping a numerical failure."""
+    invalid = {
+        key: repr(value) for key, value in values.items() if not math.isfinite(value)
+    }
+    if not invalid:
+        return
+    phase = (
+        "initial evaluation (before any gradient update)"
+        if num_steps == 0
+        else "training/evaluation"
+    )
+    report = {
+        "env_steps": int(num_steps),
+        "phase": phase,
+        "nonfinite_metrics": invalid,
+        "metrics": {key: invalid.get(key, value) for key, value in values.items()},
+    }
+    path = Path(run_dir) / "nonfinite_metrics.json"
+    path.write_text(json.dumps(report, indent=2, allow_nan=False), encoding="utf-8")
+    detail = ", ".join(f"{key}={value}" for key, value in invalid.items())
+    raise FloatingPointError(
+        f"Non-finite SAC metrics at step {num_steps} during {phase}: {detail}. "
+        f"Diagnostic report: {path}"
+    )
+
+
 def load_env_and_network_factory(env_name, impl, num_envs=256, **overrides):
     from brax.training.agents.sac import networks as sac_networks
     from myosuite.envs.myo.mjx import make, get_default_config
@@ -195,10 +222,7 @@ def main(
                 values = {key: float(value) for key, value in metrics.items()}
                 values["training/env_steps"] = int(num_steps)
                 values["experiment/walltime"] = time.monotonic() - started
-                if not all(math.isfinite(value) for value in values.values()):
-                    raise FloatingPointError(
-                        "Non-finite SAC training/evaluation metrics"
-                    )
+                check_finite_metrics(values, num_steps, run_dir)
                 log_file.write(json.dumps(values) + "\n")
                 log_file.flush()
                 print(

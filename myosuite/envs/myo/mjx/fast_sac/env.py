@@ -16,6 +16,22 @@ def observation(state):
     return state.obs
 
 
+def _select_env_leaf(mask, selected, current):
+    """Select per-world values, retaining current shared Warp work buffers.
+
+    MJX-Warp's contact/CCD arrays have a global capacity as their leading
+    dimension, rather than num_envs. Like Playground's auto-reset wrapper,
+    only apply the environment mask to leaves with a matching leading axis.
+    Scalar/shared buffers are kept from the current physics step and rebuilt
+    by subsequent physics calls; they cannot be selected per environment.
+    """
+    if current.ndim == 0 or current.shape[0] != mask.shape[0]:
+        return current
+    return jp.where(
+        mask.reshape(mask.shape + (1,) * (current.ndim - 1)), selected, current
+    )
+
+
 @struct.dataclass
 class CollectionState:
     env_state: object
@@ -79,16 +95,16 @@ class VectorEnv:
 
         def reset_finished(current):
             candidate = self._reset(jax.random.split(reset_rng, self.num_envs))
-
-            def select(fresh, old):
-                mask = ended.reshape((self.num_envs,) + (1,) * (old.ndim - 1))
-                return jp.where(mask, fresh, old)
-
-            return jax.tree.map(select, candidate, current)
+            return jax.tree.map(
+                lambda fresh, old: _select_env_leaf(ended, fresh, old),
+                candidate,
+                current,
+            )
 
         # A batch-level conditional avoids generating resets when nobody ends.
         # When any environment ends, generate a full batch and select complete
-        # per-env pytrees (data, obs, info, metrics), including random targets.
+        # per-env state (data, obs, info, metrics), including random targets.
+        # Shared Warp work buffers remain from the current physics step.
         next_env_state = jax.lax.cond(
             jp.any(ended), reset_finished, lambda x: x, stepped
         )
@@ -125,11 +141,11 @@ class VectorEnv:
             # for the remaining evaluation horizon. Their extra step results
             # are discarded; unfinished worlds still advance in one GPU batch.
             state = jax.tree.map(
-                lambda new, old: jp.where(
-                    alive.reshape((self.num_envs,) + (1,) * (old.ndim - 1)), new, old
-                ),
-                stepped,
+                # Freeze inactive worlds, but retain the NEW shared work
+                # buffers for active worlds from this batched physics step.
+                lambda old, new: _select_env_leaf(~alive, old, new),
                 state,
+                stepped,
             )
             returns += jp.where(alive, state.reward, 0.0)
             lengths += alive.astype(jp.float32)
